@@ -11,7 +11,7 @@ edition = "2021"
 [workspace.dependencies]
 gpui-ce = {
     git = "https://github.com/1Step621/WGPUI",
-    rev = "0fd18331c297d0d6f6ca2b797a31c68cfaafc35e"
+    rev = "16e503f7a96066ce473b1751ce46b5c392b1d4c3"
 }
 ui-macros = { path = "crates/ui-macros" }
 

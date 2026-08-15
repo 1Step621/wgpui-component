@@ -39,6 +39,33 @@ use crate::input::{RopeExt as _, Selection};
 use crate::{highlighter::DiagnosticSet, input::text_wrapper::LineItem};
 use crate::{history::History, scroll::ScrollbarState, Root};
 
+/// Convert a UTF-16 range that is relative to `text` into a byte range
+/// relative to `text`.
+///
+/// IME composition reports the cursor position inside the composing text
+/// in UTF-16 units, but this editor works with byte offsets.
+fn utf16_range_to_byte_range(text: &str, range_utf16: &Range<usize>) -> Range<usize> {
+    let mut utf16_count = 0;
+    let mut start = text.len();
+    let mut end = text.len();
+    let mut found_start = false;
+    let mut found_end = false;
+    for (byte_idx, ch) in text.char_indices() {
+        let ch_len_utf16 = ch.len_utf16();
+        if !found_start && utf16_count >= range_utf16.start {
+            start = byte_idx;
+            found_start = true;
+        }
+        if !found_end && utf16_count >= range_utf16.end {
+            end = byte_idx;
+            found_end = true;
+            break;
+        }
+        utf16_count += ch_len_utf16;
+    }
+    start..end
+}
+
 impl InputState {
     pub(crate) fn replace_text_in_range_silent(
         &mut self,
@@ -96,8 +123,12 @@ impl EntityInputHandler for InputState {
             .map(|range| self.range_to_utf16(&range.into()))
     }
 
-    fn unmark_text(&mut self, _window: &mut Window, _cx: &mut Context<Self>) {
-        self.ime_marked_range = None;
+    fn unmark_text(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        if self.ime_marked_range.is_some() {
+            self.ime_marked_range = None;
+            cx.emit(InputEvent::Change);
+            cx.notify();
+        }
     }
 
     /// Replace text in range.
@@ -241,8 +272,10 @@ impl EntityInputHandler for InputState {
             self.ime_marked_range = Some((range.start..range.start + new_text.len()).into());
             self.selected_range = new_selected_range_utf16
                 .as_ref()
-                .map(|range_utf16| self.range_from_utf16(range_utf16))
-                .map(|new_range| new_range.start + range.start..new_range.end + range.end)
+                .map(|range_utf16| {
+                    let byte_range = utf16_range_to_byte_range(new_text, range_utf16);
+                    range.start + byte_range.start..range.start + byte_range.end
+                })
                 .unwrap_or_else(|| range.start + new_text.len()..range.start + new_text.len())
                 .into();
         }

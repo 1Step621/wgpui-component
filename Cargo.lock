@@ -2374,7 +2374,7 @@ dependencies = [
 [[package]]
 name = "gpui-ce"
 version = "1.0.0"
-source = "git+https://github.com/1Step621/WGPUI?rev=7fdd6b64ab339c9f8d521c44db2db1b2b16cef38#7fdd6b64ab339c9f8d521c44db2db1b2b16cef38"
+source = "git+https://github.com/1Step621/WGPUI?rev=053554cc4234b9d790a9ca8f7c92ff432d0eb47f#053554cc4234b9d790a9ca8f7c92ff432d0eb47f"
 dependencies = [
  "anyhow",
  "arboard",

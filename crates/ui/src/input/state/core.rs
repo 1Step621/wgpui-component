@@ -311,6 +311,7 @@ pub struct InputState {
     pub(in crate::input) last_selected_range: Option<Selection>,
     pub(in crate::input) selecting: bool,
     pub(in crate::input) disabled: bool,
+    pub(in crate::input) fixed_height: bool,
     pub(in crate::input) masked: bool,
     pub(in crate::input) clean_on_escape: bool,
     pub(in crate::input) soft_wrap: bool,
@@ -437,6 +438,7 @@ impl InputState {
             input_bounds: Bounds::default(),
             selecting: false,
             disabled: false,
+            fixed_height: false,
             masked: false,
             clean_on_escape: false,
             soft_wrap: true,
@@ -693,6 +695,7 @@ impl InputState {
 
         self.history.ignore = true;
         let was_disabled = self.disabled;
+        self.disabled = false;
         self.replace_text(value, window, cx);
         self.disabled = was_disabled;
         self.history.ignore = false;
@@ -1105,7 +1108,11 @@ impl Render for InputState {
             .when(self.mode.is_multi_line(), |this| this.h_full())
             .flex_grow()
             .overflow_x_hidden()
-            .child(TextElement::new(cx.entity().clone()).placeholder(self.placeholder.clone()))
+            .child(
+                div().flex().flex_1().size_full().overflow_hidden().child(
+                    TextElement::new(cx.entity().clone()).placeholder(self.placeholder.clone()),
+                ),
+            )
             .children(self.diagnostic_popover.clone())
             .children(self.context_menu.as_ref().map(|menu| menu.render()))
             .children(self.hover_popover.clone())

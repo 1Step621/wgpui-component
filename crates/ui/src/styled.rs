@@ -6,7 +6,7 @@ use crate::{
 };
 use gpui::{
     div, point, px, App, Axis, BoxShadow, Corners, DefiniteLength, Div, Edges, Element,
-    FocusHandle, Hsla, ParentElement, Pixels, Refineable, StyleRefinement, Styled, Window,
+    FocusHandle, Hsla, Length, ParentElement, Pixels, Refineable, StyleRefinement, Styled, Window,
 };
 use serde::{Deserialize, Serialize};
 
@@ -20,6 +20,13 @@ pub fn h_flex() -> Div {
 #[inline]
 pub fn v_flex() -> Div {
     div().v_flex()
+}
+
+pub(crate) fn is_full_width(style: &StyleRefinement) -> bool {
+    matches!(
+        style.size.width,
+        Some(Length::Definite(DefiniteLength::Fraction(1.0)))
+    )
 }
 
 /// Create a [`BoxShadow`] like CSS.

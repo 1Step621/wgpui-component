@@ -869,7 +869,7 @@ impl Element for TextElement {
         if state.mode.is_multi_line() {
             style.flex_grow = 1.0;
             style.size.height = relative(1.).into();
-            if state.mode.is_auto_grow() {
+            if state.mode.is_auto_grow() && !state.fixed_height {
                 // Auto grow to let height match to rows, but not exceed max rows.
                 let rows = state.mode.max_rows().min(state.mode.rows());
                 style.min_size.height = (rows * line_height).into();

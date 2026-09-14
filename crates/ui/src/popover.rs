@@ -1,9 +1,9 @@
 use gpui::{
     anchored, deferred, div, prelude::FluentBuilder as _, px, AnyElement, App, Bounds, Context,
-    Corner, DismissEvent, DispatchPhase, Element, ElementId, Entity, EventEmitter, FocusHandle,
-    Focusable, GlobalElementId, Hitbox, InteractiveElement as _, IntoElement, KeyBinding, LayoutId,
-    ManagedView, MouseButton, MouseDownEvent, ParentElement, Pixels, Point, Render, Style,
-    StyleRefinement, Styled, Window,
+    Corner, DismissEvent, DispatchPhase, Display, Element, ElementId, Entity, EventEmitter,
+    FocusHandle, Focusable, GlobalElementId, Hitbox, InteractiveElement as _, IntoElement,
+    KeyBinding, LayoutId, ManagedView, MouseButton, MouseDownEvent, ParentElement, Pixels, Point,
+    Render, Style, StyleRefinement, Styled, Window,
 };
 use std::{cell::RefCell, rc::Rc};
 
@@ -251,11 +251,16 @@ impl<M: ManagedView> Element for Popover<M> {
         // This bypasses the normal layout system but is necessary until GPUI supports
         // propagating layout hints from child to parent more elegantly.
         if let Some(trigger_style) = self.trigger_style.clone() {
-            if let Some(width) = trigger_style.size.width {
-                style.size.width = width;
-            }
-            if let Some(display) = trigger_style.display {
-                style.display = display;
+            if crate::is_full_width(&trigger_style) {
+                style.display = Display::Flex;
+                style.flex_grow = 1.0;
+            } else {
+                if let Some(width) = trigger_style.size.width {
+                    style.size.width = width;
+                }
+                if let Some(display) = trigger_style.display {
+                    style.display = display;
+                }
             }
         }
 

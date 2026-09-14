@@ -882,6 +882,11 @@ where
         let allow_open = !(state.open || self.disabled);
         let outline_visible = state.open || is_focused && !self.disabled;
         let popup_radius = cx.theme().radius.min(px(8.));
+        let mut input_style = self.style.clone();
+        let fill_width = crate::is_full_width(&input_style);
+        if fill_width {
+            input_style.size.width = None;
+        }
 
         div()
             .id(self.id.clone())
@@ -893,7 +898,8 @@ where
             .on_action(window.listener_for(&self.state, DropdownState::down))
             .on_action(window.listener_for(&self.state, DropdownState::enter))
             .on_action(window.listener_for(&self.state, DropdownState::escape))
-            .size_full()
+            .when(fill_width, |this| this.min_w_0().flex_1().flex())
+            .when(!fill_width, |this| this.size_full())
             .relative()
             .child(
                 div()
@@ -918,9 +924,10 @@ where
                         }
                     })
                     .overflow_hidden()
+                    .when(fill_width, |this| this.min_w_0().flex_1())
                     .input_size(self.size)
                     .input_text_size(self.size)
-                    .refine_style(&self.style)
+                    .refine_style(&input_style)
                     .when(outline_visible, |this| this.focused_border(cx))
                     .when(allow_open, |this| {
                         this.on_click(window.listener_for(&self.state, DropdownState::toggle_menu))

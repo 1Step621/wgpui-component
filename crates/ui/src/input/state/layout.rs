@@ -152,6 +152,10 @@ impl InputState {
             self.update_scroll_offset(Some(self.scroll_handle.offset() + delta), cx);
         }
         self.diagnostic_popover = None;
+
+        if self.mode.is_multi_line() {
+            cx.stop_propagation();
+        }
     }
 
     fn update_scroll_offset(&mut self, offset: Option<Point<Pixels>>, cx: &mut Context<Self>) {

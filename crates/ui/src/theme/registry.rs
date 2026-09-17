@@ -11,7 +11,7 @@ use std::{
     sync::{Arc, LazyLock},
 };
 
-const DEFAULT_THEME: &str = include_str!("../../../../themes/default.json");
+const DEFAULT_THEME: &str = include_str!("../../themes/default.json");
 pub(crate) const DEFAULT_THEME_COLORS: LazyLock<
     HashMap<ThemeMode, (Arc<ThemeColor>, Arc<HighlightTheme>)>,
 > = LazyLock::new(|| {

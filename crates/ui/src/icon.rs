@@ -6,7 +6,7 @@ use gpui::{
 };
 
 // Scans assets/icons/*.svg at compile time → generates `enum IconName` + `IconName::path()`
-ui_macros::generate_icon_enum!("../../assets/icons");
+ui_macros::generate_icon_enum!("assets/icons");
 
 impl IconName {
     #[allow(non_upper_case_globals)]
@@ -163,7 +163,9 @@ impl From<Icon> for AnyElement {
 
 impl Render for Icon {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let text_color = self.text_color.unwrap_or_else(|| cx.theme().foreground.into());
+        let text_color = self
+            .text_color
+            .unwrap_or_else(|| cx.theme().foreground.into());
         let text_size = window.text_style().font_size.to_pixels(window.rem_size());
         let has_base_size = self.style.size.width.is_some() || self.style.size.height.is_some();
 

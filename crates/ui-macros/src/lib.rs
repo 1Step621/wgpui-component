@@ -15,7 +15,7 @@ pub fn derive_into_plot(input: TokenStream) -> TokenStream {
 /// Each `.svg` file becomes a PascalCase variant.
 ///
 /// ```ignore
-/// generate_icon_enum!("../../assets/icons");
+/// generate_icon_enum!("assets/icons");
 /// ```
 #[proc_macro]
 pub fn generate_icon_enum(input: TokenStream) -> TokenStream {

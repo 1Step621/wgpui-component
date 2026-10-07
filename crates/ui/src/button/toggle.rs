@@ -121,11 +121,13 @@ impl RenderOnce for Toggle {
             .flex_row()
             .items_center()
             .justify_center()
+            .h(self.size.control_height())
+            .min_w(self.size.control_height())
             .map(|this| match self.size {
-                Size::XSmall => this.min_w_5().h_5().px_0p5().text_xs(),
-                Size::Small => this.min_w_6().h_6().px_1().text_sm(),
-                Size::Large => this.min_w_9().h_9().px_3().text_lg(),
-                _ => this.min_w_8().h_8().px_2(),
+                Size::XSmall => this.px_0p5().text_xs(),
+                Size::Small => this.px_1().text_sm(),
+                Size::Large => this.px_3().text_lg(),
+                _ => this.px_2(),
             })
             .rounded(cx.theme().radius)
             .when(self.variant == ToggleVariant::Outline, |this| {

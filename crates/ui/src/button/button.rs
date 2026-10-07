@@ -10,7 +10,7 @@ use gpui::{
     div, prelude::FluentBuilder as _, px, relative, Action, AnyElement, App, ClickEvent, Context,
     Corner, Corners, Div, Edges, ElementId, Hsla, InteractiveElement, Interactivity, IntoElement,
     ParentElement, Pixels, RenderOnce, SharedString, Stateful, StatefulInteractiveElement,
-    StyleRefinement, Styled, Window
+    StyleRefinement, Styled, Window,
 };
 use std::rc::Rc;
 
@@ -483,20 +483,16 @@ impl RenderOnce for Button {
             .when(!style.no_padding(), |this| {
                 if self.label.is_none() && self.children.is_empty() {
                     // Icon Button
-                    match self.size {
-                        Size::Size(px) => this.size(px),
-                        Size::XSmall => this.size_5(),
-                        Size::Small => this.size_6(),
-                        Size::Large | Size::Medium => this.size_8(),
-                    }
+                    this.size(self.size.control_height())
                 } else {
                     // Normal Button
-                    match self.size {
-                        Size::Size(size) => this.px(size * 0.2),
-                        Size::XSmall => this.h_5().px_1(),
-                        Size::Small => this.h_6().px_3().when(self.compact, |this| this.px_1p5()),
-                        _ => this.h_8().px_4().when(self.compact, |this| this.px_2()),
-                    }
+                    this.h(self.size.control_height())
+                        .map(|this| match self.size {
+                            Size::Size(size) => this.px(size * 0.2),
+                            Size::XSmall => this.px_1(),
+                            Size::Small => this.px_3().when(self.compact, |this| this.px_1p5()),
+                            _ => this.px_4().when(self.compact, |this| this.px_2()),
+                        })
                 }
             })
             .when(

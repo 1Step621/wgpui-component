@@ -126,7 +126,9 @@ impl EntityInputHandler for InputState {
     fn unmark_text(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         if self.ime_marked_range.is_some() {
             self.ime_marked_range = None;
-            cx.emit(InputEvent::Change);
+            if self.emit_change_event {
+                cx.emit(InputEvent::Change);
+            }
             cx.notify();
         }
     }
@@ -218,7 +220,9 @@ impl EntityInputHandler for InputState {
         if !self.silent_replace_text {
             self.handle_completion_trigger(&range, &new_text, window, cx);
         }
-        cx.emit(InputEvent::Change);
+        if self.emit_change_event {
+            cx.emit(InputEvent::Change);
+        }
         cx.notify();
     }
 
@@ -280,7 +284,9 @@ impl EntityInputHandler for InputState {
                 .into();
         }
         self.mode.update_auto_grow(&self.text_wrapper);
-        cx.emit(InputEvent::Change);
+        if self.emit_change_event {
+            cx.emit(InputEvent::Change);
+        }
         cx.notify();
     }
 

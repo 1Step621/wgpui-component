@@ -13,10 +13,10 @@ use gpui::{
 use gpui_sum_tree::Bias;
 use ropey::{Rope, RopeSlice};
 use serde::Deserialize;
-use std::ops::Range;
-use std::rc::Rc;
 #[cfg(not(target_family = "wasm"))]
 use std::cell::RefCell;
+use std::ops::Range;
+use std::rc::Rc;
 use unicode_segmentation::*;
 
 use crate::input::{
@@ -357,6 +357,7 @@ pub struct InputState {
 
     /// A flag to indicate if we should ignore the next completion event.
     pub(in crate::input) silent_replace_text: bool,
+    pub(in crate::input) emit_change_event: bool,
 
     /// To remember the horizontal column (x-coordinate) of the cursor position for keep column for move up/down.
     ///
@@ -470,6 +471,7 @@ impl InputState {
             hover_popover: None,
             hover_definition: HoverDefinition::default(),
             silent_replace_text: false,
+            emit_change_event: true,
             _subscriptions,
             _context_menu_task: Task::ready(Ok(())),
             line_highlights: Vec::new(),
@@ -710,6 +712,22 @@ impl InputState {
         self.minimap_drag.cache.borrow_mut().invalidate_all();
 
         cx.notify();
+    }
+
+    /// Update the displayed value without emitting [`InputEvent::Change`].
+    ///
+    /// Use this when synchronizing the input from a model. User edits still
+    /// emit change events, so model updates cannot feed back into themselves.
+    pub fn set_value_silent(
+        &mut self,
+        value: impl Into<SharedString>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let emit_change_event = self.emit_change_event;
+        self.emit_change_event = false;
+        self.set_value(value, window, cx);
+        self.emit_change_event = emit_change_event;
     }
 
     /// Get a reference to the line cache for performance monitoring.

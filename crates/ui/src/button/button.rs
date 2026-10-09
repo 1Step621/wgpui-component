@@ -188,7 +188,6 @@ pub struct Button {
     base: Stateful<Div>,
     style: StyleRefinement,
     icon: Option<Icon>,
-    icon_size: Option<Size>,
     label: Option<SharedString>,
     children: Vec<AnyElement>,
     disabled: bool,
@@ -233,7 +232,6 @@ impl Button {
             base: div().flex_shrink_0().id(id),
             style: StyleRefinement::default(),
             icon: None,
-            icon_size: None,
             label: None,
             disabled: false,
             selected: false,
@@ -291,12 +289,6 @@ impl Button {
     /// Set the icon of the button, if the Button have no label, the button well in Icon Button mode.
     pub fn icon(mut self, icon: impl Into<Icon>) -> Self {
         self.icon = Some(icon.into());
-        self
-    }
-
-    /// Set the icon size independently of the button's control size.
-    pub fn icon_size(mut self, size: impl Into<Size>) -> Self {
-        self.icon_size = Some(size.into());
         self
     }
 
@@ -455,10 +447,10 @@ impl RenderOnce for Button {
         let style: ButtonVariant = self.variant;
         let clickable = !(self.disabled || self.loading) && self.on_click.is_some();
         let normal_style = style.normal(self.outline, cx);
-        let icon_size = self.icon_size.unwrap_or(match self.size {
+        let icon_size = match self.size {
             Size::Size(v) => Size::Size(v * 0.75),
             _ => self.size,
-        });
+        };
 
         let focus_handle = window
             .use_keyed_state(self.id.clone(), cx, |_, cx| cx.focus_handle())
@@ -596,7 +588,7 @@ impl RenderOnce for Button {
                     .when(self.loading, |this| {
                         this.child(
                             Indicator::new()
-                                .with_size(self.icon_size.unwrap_or(self.size))
+                                .with_size(self.size)
                                 .when_some(self.loading_icon, |this, icon| this.icon(icon)),
                         )
                     })

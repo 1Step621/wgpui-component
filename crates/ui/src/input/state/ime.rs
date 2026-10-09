@@ -239,6 +239,12 @@ impl EntityInputHandler for InputState {
             return;
         }
 
+        // Empty preedit notifications can arrive without an active composition.
+        // They must not replace a plain text selection, such as after Ctrl+A.
+        if new_text.is_empty() && range_utf16.is_none() && self.ime_marked_range.is_none() {
+            return;
+        }
+
         let range = range_utf16
             .as_ref()
             .map(|range_utf16| self.range_from_utf16(range_utf16))

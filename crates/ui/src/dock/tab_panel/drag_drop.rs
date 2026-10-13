@@ -216,55 +216,9 @@ impl TabPanel {
         source_channel: DockChannel,
         cx: &mut App,
     ) -> Option<AnyWindowHandle> {
-        use crate::Root;
+        use crate::dock::popout::{open_popout_window, origin_under_cursor};
 
-        let tab_bar_h = px(36.0);
-        let opts = WindowOptions {
-            window_bounds: Some(WindowBounds::Windowed(Bounds::new(
-                Point {
-                    x: screen_pos.x - px(120.0),
-                    y: screen_pos.y - tab_bar_h / 2.0,
-                },
-                size(px(800.), px(600.)),
-            ))),
-            titlebar: None,
-            window_min_size: Some(gpui::Size {
-                width: px(400.),
-                height: px(300.),
-            }),
-            kind: WindowKind::Normal,
-            window_decorations: Some(gpui::WindowDecorations::Client),
-            ..Default::default()
-        };
-
-        let _ = cx.open_window(opts, {
-            let panel = panel.clone();
-            move |window, cx| {
-                let dock = cx.new(|cx| {
-                    DockArea::new_with_channel("detached-dock", Some(1), source_channel, window, cx)
-                });
-                let weak = dock.downgrade();
-                let tp = cx.new(|cx| {
-                    let mut t = Self::new(None, weak.clone(), source_channel, window, cx);
-                    t.closable = true;
-                    t
-                });
-                tp.update(cx, |t, cx| t.add_panel(panel.clone(), window, cx));
-                dock.update(cx, |d, cx| {
-                    d.set_center(
-                        DockItem::Tabs {
-                            view: tp.clone(),
-                            active_ix: 0,
-                            items: vec![panel.clone()],
-                        },
-                        window,
-                        cx,
-                    );
-                });
-                cx.new(|cx| Root::new(dock.into(), window, cx))
-            }
-        });
-        None
+        open_popout_window(panel, origin_under_cursor(screen_pos), source_channel, None, cx)
     }
 
     pub(crate) fn create_window_with_panel(

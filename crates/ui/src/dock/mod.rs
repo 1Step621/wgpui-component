@@ -1,5 +1,6 @@
 mod dock;
 mod invalid_panel;
+mod popout;
 mod panel;
 mod stack_panel;
 mod state;
@@ -18,6 +19,10 @@ use std::sync::{Arc, OnceLock};
 
 pub use dock::*;
 pub use panel::*;
+pub use popout::{
+    reset_popout_decorations, set_popout_decorations, DefaultPopoutDecorations, PopoutContext,
+    PopoutDecorations,
+};
 pub use stack_panel::*;
 pub use state::*;
 pub use tab_drag::{
@@ -1112,18 +1117,20 @@ impl DockArea {
                                     view.remove_self_if_empty(window, cx);
                                 });
 
-                                Self::create_popout_window(
+                                popout::open_popout_window(
                                     popout_panel.clone(),
-                                    popout_position,
+                                    popout::origin_under_cursor(popout_position),
+                                    DockChannel::default(),
                                     Some(popout_source.clone()),
                                     cx,
                                 );
                             });
                         } else {
                             tracing::warn!("[DOCK_AREA] Source tab panel missing during popout; creating detached window directly");
-                            Self::create_popout_window(
+                            popout::open_popout_window(
                                 popout_panel,
-                                popout_position,
+                                popout::origin_under_cursor(popout_position),
+                                DockChannel::default(),
                                 Some(popout_source),
                                 cx,
                             );
@@ -1199,166 +1206,6 @@ impl DockArea {
             .as_ref()
             .and_then(|dock| dock.read(cx).panel.left_top_tab_panel(cx))
             .map(|view| view.entity_id());
-    }
-
-    /// Create a popout window with the given panel
-    fn create_popout_window(
-        panel: Arc<dyn PanelView>,
-        position: gpui::Point<Pixels>,
-        source: Option<PanelSource>,
-        cx: &mut App,
-    ) {
-        use gpui::{px, size, Bounds, Point, WindowBounds, WindowKind, WindowOptions};
-
-        let window_size = size(px(800.), px(600.));
-        let title_bar_height = px(36.0);
-
-        let window_bounds = Bounds::new(
-            Point {
-                x: position.x - px(100.0),
-                y: position.y - title_bar_height - px(4.0),
-            },
-            window_size,
-        );
-
-        let window_options = WindowOptions {
-            window_bounds: Some(WindowBounds::Windowed(window_bounds)),
-            titlebar: None,
-            window_min_size: Some(gpui::Size {
-                width: px(400.),
-                height: px(300.),
-            }),
-            kind: WindowKind::Normal,
-            is_resizable: true,
-            window_decorations: Some(gpui::WindowDecorations::Client),
-            ..Default::default()
-        };
-
-        let _ = cx.open_window(window_options, move |window, cx| {
-            tracing::trace!("[DOCK_AREA] Inside window creation callback");
-
-            let new_dock_area = cx.new(|cx| DockArea::new("detached-dock", Some(1), window, cx));
-            let weak_new_dock = new_dock_area.downgrade();
-
-            let new_tab_panel = cx.new(|cx| {
-                let channel = weak_new_dock
-                    .upgrade()
-                    .map(|d| d.read(cx).channel)
-                    .unwrap_or_default();
-                let mut tab_panel = TabPanel::new(None, weak_new_dock.clone(), channel, window, cx);
-                tab_panel.closable = true;
-                tab_panel
-            });
-
-            new_tab_panel.update(cx, |view: &mut TabPanel, cx: &mut Context<TabPanel>| {
-                view.add_panel(panel.clone(), window, cx);
-            });
-
-            new_dock_area.update(cx, |dock: &mut DockArea, cx: &mut Context<DockArea>| {
-                let dock_item = DockItem::Tabs {
-                    view: new_tab_panel.clone(),
-                    active_ix: 0,
-                    items: vec![panel.clone()],
-                };
-                dock.set_center(dock_item, window, cx);
-            });
-
-            tracing::trace!("[DOCK_AREA] Popout window created successfully");
-            let popout_window = cx
-                .new(|cx| PopoutDockWindow::new(new_dock_area, panel.clone(), source, window, cx));
-            cx.new(|cx| crate::Root::new(popout_window.into(), window, cx))
-        });
-    }
-}
-
-/// Wrapper window for popped-out dock areas - includes a titlebar
-struct PopoutDockWindow {
-    dock_area: Entity<DockArea>,
-    original_panel: Arc<dyn PanelView>,
-    source: Option<PanelSource>,
-}
-
-impl PopoutDockWindow {
-    fn new(
-        dock_area: Entity<DockArea>,
-        original_panel: Arc<dyn PanelView>,
-        source: Option<PanelSource>,
-        _window: &mut Window,
-        _cx: &mut Context<Self>,
-    ) -> Self {
-        Self {
-            dock_area,
-            original_panel,
-            source,
-        }
-    }
-}
-
-impl Render for PopoutDockWindow {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        use crate::{v_flex, ActiveTheme, TitleBar};
-        let theme = cx.theme();
-
-        let panel = self.original_panel.clone();
-        let source = self.source.clone();
-
-        let mut title_bar = TitleBar::new();
-
-        // Add close handler to restore panel to its original location
-        if let Some(source_info) = source {
-            title_bar = title_bar.on_close_window(move |_, window, cx| {
-                tracing::trace!(
-                    "[POPOUT] Close button clicked, restoring panel to original location"
-                );
-
-                let panel_to_restore = panel.clone();
-                let tab_index = source_info.tab_index;
-
-                let _ = cx.update_window(source_info.parent_window, |_root, window, cx| {
-                    if let Some(source_tab_panel) = source_info.tab_panel.upgrade() {
-                        cx.update_entity(&source_tab_panel, |tab_panel, cx| {
-                            tracing::trace!(
-                                "[POPOUT] Adding panel back to original tab panel at index {:?}",
-                                tab_index
-                            );
-
-                            if let Some(idx) = tab_index {
-                                // Restore to the specific index
-                                tab_panel.insert_panel_at(
-                                    panel_to_restore.clone(),
-                                    idx,
-                                    window,
-                                    cx,
-                                );
-                            } else {
-                                // Add at the end
-                                tab_panel.add_panel(panel_to_restore.clone(), window, cx);
-                            }
-                        });
-                    } else {
-                        tracing::trace!(
-                            "[POPOUT] Warning: source tab panel was dropped, cannot restore"
-                        );
-                    }
-                });
-
-                // Close this window
-                window.remove_window();
-            });
-        } else {
-            tracing::trace!("[POPOUT] Warning: no source information available for restoration");
-        }
-
-        v_flex()
-            .size_full()
-            .bg(theme.background)
-            .child(title_bar)
-            .child(
-                div()
-                    .flex_1()
-                    .overflow_hidden()
-                    .child(self.dock_area.clone()),
-            )
     }
 }
 

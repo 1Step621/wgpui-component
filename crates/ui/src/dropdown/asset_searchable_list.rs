@@ -59,6 +59,13 @@ pub struct AssetSearchableList<T: Clone + 'static> {
     empty_text: SharedString,
     max_width: Pixels,
     max_height: Pixels,
+    /// Indices into `items` that match the search.
+    filtered: Vec<usize>,
+    filter_key: Option<(String, u64)>,
+    items_version: u64,
+    scroll: gpui::UniformListScrollHandle,
+    /// Told which items are on screen, so callers can load thumbnails for those only.
+    on_visible: Option<Rc<dyn Fn(&[T], &mut App)>>,
 }
 
 impl<T: Clone + 'static> EventEmitter<AssetSearchableListEvent<T>> for AssetSearchableList<T> {}
@@ -98,6 +105,11 @@ impl<T: Clone + 'static> AssetSearchableList<T> {
             empty_text: "No assets found".into(),
             max_width: px(340.0),
             max_height: px(400.0),
+            filtered: Vec::new(),
+            filter_key: None,
+            items_version: 0,
+            scroll: gpui::UniformListScrollHandle::new(),
+            on_visible: None,
         }
     }
 
@@ -141,8 +153,15 @@ impl<T: Clone + 'static> AssetSearchableList<T> {
         self
     }
 
+    /// Call `f` with the items currently scrolled into view.
+    pub fn with_visible_callback(mut self, f: impl Fn(&[T], &mut App) + 'static) -> Self {
+        self.on_visible = Some(Rc::new(f));
+        self
+    }
+
     pub fn set_items(&mut self, items: Vec<T>, cx: &mut Context<Self>) {
         self.items = items;
+        self.items_version += 1;
         cx.notify();
     }
 
@@ -192,55 +211,29 @@ impl<T: Clone + 'static> AssetSearchableList<T> {
     }
 }
 
-impl<T: Clone + 'static> Render for AssetSearchableList<T> {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+impl<T: Clone + 'static> AssetSearchableList<T> {
+    /// Items matching the search, as indices into `items`. Recomputed only
+    /// when the text or the items change, not on every frame.
+    fn refresh_filter(&mut self, cx: &App) {
         let query = self.search_input.read(cx).value().to_lowercase();
-
-        let filtered_items: Vec<T> = self
+        if self.filter_key.as_ref() == Some(&(query.clone(), self.items_version)) {
+            return;
+        }
+        self.filtered = self
             .items
             .iter()
-            .filter(|item| {
-                if query.is_empty() {
-                    return true;
-                }
-                let title = (self.format_title)(item).to_lowercase();
-                let desc = (self.format_description)(item).to_lowercase();
-                title.contains(&query) || desc.contains(&query)
+            .enumerate()
+            .filter(|(_, item)| {
+                query.is_empty()
+                    || (self.format_title)(item).to_lowercase().contains(&query)
+                    || (self.format_description)(item).to_lowercase().contains(&query)
             })
-            .cloned()
+            .map(|(i, _)| i)
             .collect();
+        self.filter_key = Some((query, self.items_version));
+    }
 
-        v_flex()
-            .w(self.max_width)
-            .h(self.max_height)
-            .max_h(self.max_height)
-            .p_1()
-            .gap_1()
-            .track_focus(&self.focus_handle)
-            .child(
-                div()
-                    .px_1()
-                    .pb_1()
-                    .border_b_1()
-                    .border_color(cx.theme().border)
-                    .child(TextInput::new(&self.search_input).w_full().xsmall()),
-            )
-            .child(
-                div().flex_1().min_h_0().w_full().overflow_hidden().child(
-                    div().size_full().scrollable(ScrollbarAxis::Vertical).child(
-                        v_flex()
-                            .w_full()
-                            .when(filtered_items.is_empty(), |el| {
-                                el.child(
-                                    div()
-                                        .px_2()
-                                        .py_1()
-                                        .text_xs()
-                                        .text_color(cx.theme().muted_foreground)
-                                        .child(self.empty_text.clone()),
-                                )
-                            })
-                            .children(filtered_items.into_iter().enumerate().map(|(ix, item)| {
+    fn render_row(&self, ix: usize, item: T, cx: &mut Context<Self>) -> gpui::AnyElement {
                                 let title = (self.format_title)(&item);
                                 let description = (self.format_description)(&item);
                                 let image_source =
@@ -389,9 +382,57 @@ impl<T: Clone + 'static> Render for AssetSearchableList<T> {
                                                 )
                                             }),
                                     )
-                            })),
-                    ),
-                ),
+            .into_any_element()
+    }
+}
+
+impl<T: Clone + 'static> Render for AssetSearchableList<T> {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.refresh_filter(cx);
+        let count = self.filtered.len();
+
+        v_flex()
+            .w(self.max_width)
+            .h(self.max_height)
+            .max_h(self.max_height)
+            .p_1()
+            .gap_1()
+            .track_focus(&self.focus_handle)
+            .child(
+                div()
+                    .px_1()
+                    .pb_1()
+                    .border_b_1()
+                    .border_color(cx.theme().border)
+                    .child(TextInput::new(&self.search_input).w_full().xsmall()),
             )
+            .child(div().flex_1().min_h_0().w_full().overflow_hidden().child(if count == 0 {
+                div()
+                    .px_2()
+                    .py_1()
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(self.empty_text.clone())
+                    .into_any_element()
+            } else {
+                // Only the rows in view are built, however many assets there are.
+                gpui::uniform_list(
+                    "asset-searchable-list",
+                    count,
+                    cx.processor(|this, range: std::ops::Range<usize>, _window, cx| {
+                        let items: Vec<T> = range.clone().filter_map(|i| this.filtered.get(i).and_then(|&ix| this.items.get(ix).cloned())).collect();
+                        if let Some(visible) = this.on_visible.clone() {
+                            visible(&items, cx);
+                        }
+                        range
+                            .zip(items)
+                            .map(|(i, item)| this.render_row(i, item, cx))
+                            .collect::<Vec<_>>()
+                    }),
+                )
+                .track_scroll(&self.scroll)
+                .size_full()
+                .into_any_element()
+            }))
     }
 }

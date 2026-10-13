@@ -20,13 +20,14 @@ use std::sync::{Arc, OnceLock};
 pub use dock::*;
 pub use panel::*;
 pub use popout::{
-    reset_popout_decorations, set_popout_decorations, DefaultPopoutDecorations, PopoutContext,
-    PopoutDecorations,
+    live_popouts, open_popout_with, popout_events, reset_popout_decorations,
+    set_popout_decorations, DefaultPopoutDecorations, PopoutBuilder, PopoutContent,
+    PopoutContext, PopoutDecorations, PopoutEvent, PopoutEvents, PopoutInfo, PopoutSpec,
 };
 pub use stack_panel::*;
 pub use state::*;
 pub use tab_drag::{
-    deposit_panel_into_window, drag_screen_position, find_target_window, register_dock_window,
+    all_dock_areas, deposit_panel_into_window, DockAreaInfo, drag_screen_position, find_target_window, register_dock_window,
     set_drag_screen_position, unregister_dock_window, DockWindowRegistry,
 };
 pub use tab_panel::*;
@@ -41,6 +42,29 @@ pub struct PanelSource {
     pub parent_window: AnyWindowHandle,
     /// The index position in the original tab panel (for restoring order)
     pub tab_index: Option<usize>,
+}
+
+impl PanelSource {
+    /// A source that returns panels to `tab_panel` in `parent_window`, at
+    /// `index` (appended when `None`).
+    pub fn tab_panel(
+        tab_panel: &Entity<TabPanel>,
+        parent_window: AnyWindowHandle,
+        index: Option<usize>,
+    ) -> Self {
+        Self {
+            tab_panel: tab_panel.downgrade(),
+            parent_window,
+            tab_index: index,
+        }
+    }
+}
+
+/// Where a [`TabPanel`] sits in a [`DockArea`]; see [`DockArea::tab_groups`].
+pub(crate) struct TabGroupLocation {
+    pub(crate) placement: DockPlacement,
+    pub(crate) path: Vec<usize>,
+    pub(crate) tab_panel: Entity<TabPanel>,
 }
 
 pub(crate) fn init(cx: &mut App) {
@@ -530,7 +554,8 @@ impl DockArea {
         // Register with the global window registry so cross-window drags work.
         let weak_self = cx.entity().downgrade();
         let window_handle = window.window_handle();
-        tab_drag::register_dock_window(window_handle, weak_self, channel, cx);
+        tab_drag::register_dock_window(window_handle, weak_self.clone(), channel, cx);
+        tab_drag::track_dock_area(window_handle, weak_self, cx);
 
         this
     }
@@ -549,25 +574,43 @@ impl DockArea {
     /// placement it lives in, found by walking the live panel tree (so it
     /// reflects splits made by dragging, unlike a cached [`DockItem`]).
     pub fn tab_panels(&self, cx: &App) -> Vec<(DockPlacement, Entity<TabPanel>)> {
+        self.tab_groups(cx)
+            .into_iter()
+            .map(|group| (group.placement, group.tab_panel))
+            .collect()
+    }
+
+    /// Like [`Self::tab_panels`], with each group's tree path (child indices
+    /// from its dock's root panel; stack children and tile indices).
+    pub(crate) fn tab_groups(&self, cx: &App) -> Vec<TabGroupLocation> {
         fn walk(
             view: Arc<dyn PanelView>,
             placement: DockPlacement,
-            out: &mut Vec<(DockPlacement, Entity<TabPanel>)>,
+            path: &mut Vec<usize>,
+            out: &mut Vec<TabGroupLocation>,
             cx: &App,
         ) {
             let view = view.view();
             match view.downcast::<StackPanel>() {
                 Ok(stack) => {
-                    for child in stack.read(cx).panels.iter() {
-                        walk(child.clone(), placement, out, cx);
+                    for (ix, child) in stack.read(cx).panels.iter().enumerate() {
+                        path.push(ix);
+                        walk(child.clone(), placement, path, out, cx);
+                        path.pop();
                     }
                 }
                 Err(view) => match view.downcast::<TabPanel>() {
-                    Ok(tabs) => out.push((placement, tabs)),
+                    Ok(tabs) => out.push(TabGroupLocation {
+                        placement,
+                        path: path.clone(),
+                        tab_panel: tabs,
+                    }),
                     Err(view) => {
                         if let Ok(tiles) = view.downcast::<Tiles>() {
-                            for item in tiles.read(cx).panels.iter() {
-                                walk(item.panel.clone(), placement, out, cx);
+                            for (ix, item) in tiles.read(cx).panels.iter().enumerate() {
+                                path.push(ix);
+                                walk(item.panel.clone(), placement, path, out, cx);
+                                path.pop();
                             }
                         }
                     }
@@ -576,14 +619,20 @@ impl DockArea {
         }
 
         let mut out = Vec::new();
-        walk(self.items.view(), DockPlacement::Center, &mut out, cx);
+        walk(self.items.view(), DockPlacement::Center, &mut Vec::new(), &mut out, cx);
         for (placement, dock) in [
             (DockPlacement::Left, &self.left_dock),
             (DockPlacement::Bottom, &self.bottom_dock),
             (DockPlacement::Right, &self.right_dock),
         ] {
             if let Some(dock) = dock {
-                walk(dock.read(cx).panel.view(), placement, &mut out, cx);
+                walk(
+                    dock.read(cx).panel.view(),
+                    placement,
+                    &mut Vec::new(),
+                    &mut out,
+                    cx,
+                );
             }
         }
         out
@@ -980,8 +1029,13 @@ impl DockArea {
                 this.bottom_dock = bottom_dock;
             }
             this.items = center;
+            // The old zoom view belongs to the replaced tree.
+            this.zoom_view = None;
             for item in &loaded {
                 this.subscribe_item(item, window, cx);
+            }
+            if let Some(zoomed) = &state.zoomed {
+                this.apply_zoomed(zoomed, window, cx);
             }
             cx.notify();
         });
@@ -1014,7 +1068,79 @@ impl DockArea {
             left_dock,
             right_dock,
             bottom_dock,
+            zoomed: self.dump_zoomed(cx),
         }
+    }
+
+    /// The state naming the currently zoomed group, if any.
+    fn dump_zoomed(&self, cx: &App) -> Option<ZoomedState> {
+        let zoom_view = self.zoom_view.clone()?;
+        let tab_panel = zoom_view.downcast::<TabPanel>().ok()?;
+        let group = self
+            .tab_groups(cx)
+            .into_iter()
+            .find(|group| group.tab_panel == tab_panel)?;
+        let active = tab_panel.read(cx).active_panel(cx)?;
+        let mut panel = active.dump(cx);
+        panel.children.clear();
+        // Same fallback `TabPanel::dump` applies to its children.
+        if panel.file().is_none() {
+            if let Some(path) = active.panel_file_path(cx) {
+                panel = panel.with_file(path.to_string_lossy().into_owned());
+            }
+        }
+        Some(ZoomedState {
+            panel,
+            placement: group.placement,
+            path: group.path,
+        })
+    }
+
+    /// Zoom the group `zoomed` names (see [`DockArea::dump`]): the group whose
+    /// active panel matches its identity, else the group at its tree path.
+    /// Returns whether a group was found; if not, nothing changes.
+    pub fn apply_zoomed(
+        &mut self,
+        zoomed: &ZoomedState,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let groups = self.tab_groups(cx);
+        let at_path = |group: &TabGroupLocation| {
+            group.placement == zoomed.placement && group.path == zoomed.path
+        };
+        let matches_identity = |group: &TabGroupLocation| {
+            group
+                .tab_panel
+                .read(cx)
+                .active_panel(cx)
+                .map(|active| {
+                    let mut state = active.dump(cx);
+                    if state.file().is_none() {
+                        if let Some(path) = active.panel_file_path(cx) {
+                            state = state.with_file(path.to_string_lossy().into_owned());
+                        }
+                    }
+                    zoomed.panel.same_identity(&state)
+                })
+                .unwrap_or(false)
+        };
+        let found = groups
+            .iter()
+            .find(|g| matches_identity(g) && at_path(g))
+            .or_else(|| groups.iter().find(|g| matches_identity(g)))
+            .or_else(|| groups.iter().find(|g| at_path(g)))
+            .map(|g| g.tab_panel.clone());
+        let Some(tab_panel) = found else {
+            return false;
+        };
+        // What toggling zoom on the group does, minus the event round trip.
+        tab_panel.update(cx, |tab_panel, cx| {
+            tab_panel.zoomed = true;
+            tab_panel.set_zoomed(true, window, cx);
+        });
+        self.set_zoomed_in(tab_panel, window, cx);
+        true
     }
 
     /// Subscribe event on the panels
@@ -1122,6 +1248,7 @@ impl DockArea {
                                     popout::origin_under_cursor(popout_position),
                                     DockChannel::default(),
                                     Some(popout_source.clone()),
+                                    None,
                                     cx,
                                 );
                             });
@@ -1132,6 +1259,7 @@ impl DockArea {
                                 popout::origin_under_cursor(popout_position),
                                 DockChannel::default(),
                                 Some(popout_source),
+                                None,
                                 cx,
                             );
                         }
@@ -1157,11 +1285,14 @@ impl DockArea {
         cx: &mut Context<Self>,
     ) {
         self.zoom_view = Some(panel.into());
+        // Zoom is part of the persisted layout, so it counts as a layout change.
+        cx.emit(DockEvent::LayoutChanged);
         cx.notify();
     }
 
     pub fn set_zoomed_out(&mut self, _: &mut Window, cx: &mut Context<Self>) {
         self.zoom_view = None;
+        cx.emit(DockEvent::LayoutChanged);
         cx.notify();
     }
 

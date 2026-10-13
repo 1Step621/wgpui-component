@@ -235,12 +235,17 @@ impl TabPanel {
                         .child(panel.title(window, cx))
                         .when(state.draggable, |this| {
                             let channel = state.channel;
+                            let reset_view = view.clone();
                             this.on_drag(
                                 DragPanel::new(panel.clone(), view.clone(), channel).with_index(0),
                                 move |drag, position, _, cx| {
                                     let mut drag_with_pos = drag.clone();
                                     drag_with_pos.drag_start_position = Some(position);
                                     cx.stop_propagation();
+                                    let reset = reset_view.clone();
+                                    cx.defer(move |cx| {
+                                        let _ = reset.update(cx, |tab_panel, _| tab_panel.reset_extraction());
+                                    });
                                     cx.new(|_| drag_with_pos)
                                 },
                             )
@@ -373,6 +378,7 @@ impl TabPanel {
                         });
 
                     tab = tab.when(draggable, |this| {
+                        let reset_view = view_for_dnd.clone();
                         this.on_drag(
                             DragPanel::new(panel.clone(), view_for_dnd.clone(), channel)
                                 .with_index(orig_ix),
@@ -380,6 +386,10 @@ impl TabPanel {
                                 let mut drag_with_pos = drag.clone();
                                 drag_with_pos.drag_start_position = Some(position);
                                 cx.stop_propagation();
+                                let reset = reset_view.clone();
+                                cx.defer(move |cx| {
+                                    let _ = reset.update(cx, |tab_panel, _| tab_panel.reset_extraction());
+                                });
                                 cx.new(|_| drag_with_pos)
                             },
                         )

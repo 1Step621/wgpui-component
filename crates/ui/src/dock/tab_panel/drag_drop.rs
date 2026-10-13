@@ -88,6 +88,7 @@ impl TabPanel {
         let screen_pos = Self::mouse_to_screen(mouse_local, window);
 
         let panel = drag.panel.clone();
+        let parent_window = window.window_handle();
         let channel = self.channel;
         let source_self = cx.entity().clone();
         let source_tab = drag.tab_panel.clone();
@@ -106,8 +107,13 @@ impl TabPanel {
             }
 
             let should_close_source = n_panels == 1 && !in_tiles;
-            let new_handle =
-                TabPanel::create_window_with_panel_returning_handle(panel, screen_pos, channel, cx);
+            let new_handle = TabPanel::create_window_with_panel_returning_handle(
+                panel,
+                screen_pos,
+                channel,
+                Some(parent_window),
+                cx,
+            );
 
             if let Some(handle) = new_handle {
                 let _ = source_self.update(cx, |v, _| v.extracted_window = Some(handle));
@@ -140,6 +146,20 @@ impl TabPanel {
                 win.set_window_position(target);
             });
         }
+    }
+
+    /// Forget the live extraction of a previous drag.
+    ///
+    /// A drag that ends outside this window may never deliver a drop here, so
+    /// the extraction state of its pop-out window would otherwise outlive the
+    /// drag. The next drag would then see an extraction already in flight,
+    /// drive and finally close that old window instead of opening a new one.
+    /// Called when a new drag starts.
+    pub(crate) fn reset_extraction(&mut self) {
+        self.extraction_in_flight = false;
+        self.extracted_window = None;
+        self.dragging_outside_window = false;
+        self.will_split_placement = None;
     }
 
     /// Re-entry: close the extracted window and return the panel to this TabPanel.
@@ -214,11 +234,19 @@ impl TabPanel {
         panel: Arc<dyn PanelView>,
         screen_pos: Point<Pixels>,
         source_channel: DockChannel,
+        parent: Option<AnyWindowHandle>,
         cx: &mut App,
     ) -> Option<AnyWindowHandle> {
         use crate::dock::popout::{open_popout_window, origin_under_cursor};
 
-        open_popout_window(panel, origin_under_cursor(screen_pos), source_channel, None, cx)
+        open_popout_window(
+            panel,
+            origin_under_cursor(screen_pos),
+            source_channel,
+            None,
+            parent,
+            cx,
+        )
     }
 
     pub(crate) fn create_window_with_panel(
@@ -227,7 +255,7 @@ impl TabPanel {
         source_channel: DockChannel,
         cx: &mut App,
     ) {
-        Self::create_window_with_panel_returning_handle(panel, screen_pos, source_channel, cx);
+        Self::create_window_with_panel_returning_handle(panel, screen_pos, source_channel, None, cx);
     }
 
     // ─────────────────────────────────────────────────────────────────────

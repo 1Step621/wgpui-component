@@ -142,6 +142,20 @@ impl TabPanel {
         }
     }
 
+    /// Forget the live extraction of a previous drag.
+    ///
+    /// A drag that ends outside this window may never deliver a drop here, so
+    /// the extraction state of its pop-out window would otherwise outlive the
+    /// drag. The next drag would then see an extraction already in flight,
+    /// drive and finally close that old window instead of opening a new one.
+    /// Called when a new drag starts.
+    pub(crate) fn reset_extraction(&mut self) {
+        self.extraction_in_flight = false;
+        self.extracted_window = None;
+        self.dragging_outside_window = false;
+        self.will_split_placement = None;
+    }
+
     /// Re-entry: close the extracted window and return the panel to this TabPanel.
     pub(crate) fn cancel_live_extraction(
         &mut self,

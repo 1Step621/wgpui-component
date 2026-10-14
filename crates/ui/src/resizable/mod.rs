@@ -90,10 +90,19 @@ impl ResizableState {
         cx: &mut Context<Self>,
     ) {
         let size = bounds.size.along(self.axis);
+        let panel = &mut self.panels[panel_ix];
+        // Stable layout measurements must not schedule another redraw.
+        if self.sizes[panel_ix] == size
+            && panel.size == Some(size)
+            && panel.bounds == bounds
+            && panel.size_range == size_range
+        {
+            return;
+        }
         self.sizes[panel_ix] = size;
-        self.panels[panel_ix].size = Some(size);
-        self.panels[panel_ix].bounds = bounds;
-        self.panels[panel_ix].size_range = size_range;
+        panel.size = Some(size);
+        panel.bounds = bounds;
+        panel.size_range = size_range;
         cx.notify();
     }
 

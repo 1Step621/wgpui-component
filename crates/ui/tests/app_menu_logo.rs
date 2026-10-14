@@ -7,8 +7,8 @@
 use std::sync::Arc;
 
 use gpui::{
-    div, px, AnyView, App, Context, IntoElement, Modifiers, OwnedMenu, ParentElement as _,
-    Render, RenderImage, Styled as _, TestAppContext, Window,
+    div, px, AnyView, App, Context, IntoElement, Modifiers, OwnedMenu, ParentElement as _, Render,
+    RenderImage, Styled as _, TestAppContext, Window,
 };
 use ui::menu::AppMenuBar;
 
@@ -37,7 +37,9 @@ impl Render for Shell {
 
 fn logo() -> Arc<RenderImage> {
     let rgba = image::RgbaImage::from_pixel(4, 4, image::Rgba([255, 0, 255, 255]));
-    Arc::new(RenderImage::new(smallvec::smallvec![image::Frame::new(rgba)]))
+    Arc::new(RenderImage::new(smallvec::smallvec![image::Frame::new(
+        rgba
+    )]))
 }
 
 #[gpui::test]
@@ -62,9 +64,16 @@ fn the_logo_trigger_wraps_the_logo_and_opens_from_its_corner(cx: &mut TestAppCon
     let trigger = window.debug_bounds("app-menu-logo").expect("logo trigger");
     let side = px(LOGO + 2. * INSET);
     assert_eq!(trigger.size.width, side);
-    assert_eq!(trigger.size.height, side, "the highlight is as tall as the logo");
+    assert_eq!(
+        trigger.size.height, side,
+        "the highlight is as tall as the logo"
+    );
     let margin = px((SLOT - (LOGO + 2. * INSET)) / 2.);
-    assert_eq!(trigger.origin, gpui::point(margin, margin), "centred in its slot");
+    assert_eq!(
+        trigger.origin,
+        gpui::point(margin, margin),
+        "centred in its slot"
+    );
     assert!(window.debug_bounds("app-menu-popup").is_none());
 
     // Near the logo's top-left corner: outside the old 24 px strip.

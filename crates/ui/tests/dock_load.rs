@@ -146,7 +146,12 @@ fn a_loaded_layout_reports_its_changes(cx: &mut TestAppContext) {
         DockItem::Tabs { view, .. } => view.clone(),
         _ => panic!("the centre is a tab group"),
     });
-    tabs.update_in(&mut cx, |tabs, window, cx| tabs.set_active_tab(1, window, cx));
+    tabs.update_in(&mut cx, |tabs, window, cx| {
+        tabs.set_active_tab(1, window, cx)
+    });
     cx.run_until_parked();
-    assert!(changes.get() > 0, "the loaded layout's change reached the dock area");
+    assert!(
+        changes.get() > 0,
+        "the loaded layout's change reached the dock area"
+    );
 }

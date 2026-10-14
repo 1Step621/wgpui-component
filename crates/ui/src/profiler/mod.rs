@@ -1471,26 +1471,17 @@ impl ProfilerPanel {
             self.flame_lane_gpu.resize_with(lane_index + 1, || None);
         }
 
-        if self.flame_lane_gpu[lane_index].is_none() {
-            let Some(surface) = window.create_wgpu_surface(
-                // Real size doesn't matter here: the `WgpuSurface` element's
-                // own `prepaint` requests a resize to match its measured
-                // layout bounds every render, same as `back_view_with_size`
-                // lagging layout by one frame elsewhere in this file.
-                1,
-                1,
-                wgpu::TextureFormat::Rgba8UnormSrgb,
-            ) else {
+        match ensure_lane_gpu(
+            &mut self.flame_lane_gpu[lane_index],
+            &mut self.flame_bar_pipeline,
+            window,
+        ) {
+            LaneGpuState::Ready => {}
+            LaneGpuState::Waiting => return None,
+            LaneGpuState::Unavailable => {
                 self.flame_gpu_unavailable = true;
                 return None;
-            };
-            let device = surface.device().clone();
-            if self.flame_bar_pipeline.is_none() {
-                self.flame_bar_pipeline =
-                    Some(Rc::new(FlameBarPipeline::new(&device, surface.format())));
             }
-            let pipeline = self.flame_bar_pipeline.clone().unwrap();
-            self.flame_lane_gpu[lane_index] = Some(FlameLaneGpu::new(&device, surface, &pipeline));
         }
 
         let pipeline = self.flame_bar_pipeline.clone()?;
@@ -3203,6 +3194,9 @@ fn timeline_marker(x: f32, height: f32, color: gpui::Hsla, label: &'static str) 
 /// `wgpu::RenderPipeline` only depends on the shader + bind group layout +
 /// target format, not on any particular lane's instance data.
 pub(crate) struct FlameBarPipeline {
+    /// The device it was made on: after a device loss, a surface on the new
+    /// device needs a new pipeline.
+    device: wgpu::Device,
     pipeline: wgpu::RenderPipeline,
     bind_group_layout: wgpu::BindGroupLayout,
 }
@@ -3278,10 +3272,64 @@ impl FlameBarPipeline {
         });
 
         Self {
+            device: device.clone(),
             pipeline,
             bind_group_layout,
         }
     }
+}
+
+/// What [`ensure_lane_gpu`] found.
+pub(crate) enum LaneGpuState {
+    /// The slot holds GPU state on a live device.
+    Ready,
+    /// The GPU device was lost and the window has no new one yet; the window
+    /// renders every view again once it has.
+    Waiting,
+    /// The window can't make GPU surfaces at all.
+    Unavailable,
+}
+
+/// Fill `slot` with GPU state on a new surface if it is empty, or if the GPU
+/// device it was made on was lost (a driver reset, a removed GPU): the
+/// surface, its buffers and the pipeline all stay on the device they were
+/// made on. `pipeline` is shared between slots and remade when the new
+/// surface is on another device.
+pub(crate) fn ensure_lane_gpu(
+    slot: &mut Option<FlameLaneGpu>,
+    pipeline: &mut Option<Rc<FlameBarPipeline>>,
+    window: &Window,
+) -> LaneGpuState {
+    if slot
+        .as_ref()
+        .is_some_and(|gpu| gpu.surface.is_device_lost())
+    {
+        *slot = None;
+    }
+    if slot.is_some() {
+        return LaneGpuState::Ready;
+    }
+    // Real size doesn't matter here: the `WgpuSurface` element's own
+    // `prepaint` requests a resize to match its measured layout bounds every
+    // render, same as `back_view_with_size` lagging layout by one frame
+    // elsewhere in this file.
+    let Some(surface) = window.create_wgpu_surface(1, 1, wgpu::TextureFormat::Rgba8UnormSrgb)
+    else {
+        return LaneGpuState::Unavailable;
+    };
+    // Until the window has a new device, a new surface is on the lost one.
+    if surface.is_device_lost() {
+        return LaneGpuState::Waiting;
+    }
+    let device = surface.device().clone();
+    let pipeline = match pipeline {
+        Some(pipeline) if pipeline.device == device => pipeline.clone(),
+        _ => pipeline
+            .insert(Rc::new(FlameBarPipeline::new(&device, surface.format())))
+            .clone(),
+    };
+    *slot = Some(FlameLaneGpu::new(&device, surface, &pipeline));
+    LaneGpuState::Ready
 }
 
 /// Per-lane GPU render state: one `wgpu_surface` + instance buffer per lane,

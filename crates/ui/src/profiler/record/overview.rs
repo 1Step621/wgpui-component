@@ -1639,16 +1639,13 @@ fn paint_gpu(
     window: &Window,
     instances: &[BarInstance],
 ) -> Option<gpui::WgpuSurfaceHandle> {
-    if state.gpu.is_none() {
-        let Some(surface) = window.create_wgpu_surface(1, 1, wgpu::TextureFormat::Rgba8UnormSrgb)
-        else {
+    match crate::profiler::ensure_lane_gpu(&mut state.gpu, &mut state.pipeline, window) {
+        crate::profiler::LaneGpuState::Ready => {}
+        crate::profiler::LaneGpuState::Waiting => return None,
+        crate::profiler::LaneGpuState::Unavailable => {
             state.gpu_unavailable = true;
             return None;
-        };
-        let device = surface.device().clone();
-        let pipeline = Rc::new(FlameBarPipeline::new(&device, surface.format()));
-        state.gpu = Some(FlameLaneGpu::new(&device, surface, &pipeline));
-        state.pipeline = Some(pipeline);
+        }
     }
     let pipeline = state.pipeline.clone()?;
     let gpu = state.gpu.as_mut()?;

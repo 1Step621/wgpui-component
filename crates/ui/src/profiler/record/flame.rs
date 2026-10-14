@@ -818,18 +818,13 @@ fn paint_gridlines_gpu(
     if state.gridline_gpu_unavailable {
         return None;
     }
-    if state.gridline_gpu.is_none() {
-        let Some(surface) = window.create_wgpu_surface(1, 1, wgpu::TextureFormat::Rgba8UnormSrgb)
-        else {
+    match crate::profiler::ensure_lane_gpu(&mut state.gridline_gpu, panel_pipeline, window) {
+        crate::profiler::LaneGpuState::Ready => {}
+        crate::profiler::LaneGpuState::Waiting => return None,
+        crate::profiler::LaneGpuState::Unavailable => {
             state.gridline_gpu_unavailable = true;
             return None;
-        };
-        let device = surface.device().clone();
-        if panel_pipeline.is_none() {
-            *panel_pipeline = Some(Rc::new(FlameBarPipeline::new(&device, surface.format())));
         }
-        let pipeline = panel_pipeline.clone().unwrap();
-        state.gridline_gpu = Some(FlameLaneGpu::new(&device, surface, &pipeline));
     }
     let pipeline = panel_pipeline.clone()?;
     let gpu = state.gridline_gpu.as_mut()?;

@@ -49,8 +49,7 @@ struct Host {
 impl Render for Host {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
         let cached = |entity: &Entity<Counted>| {
-            AnyView::from(entity.clone())
-                .cached(StyleRefinement::default().w(px(100.)).h(px(40.)))
+            AnyView::from(entity.clone()).cached(StyleRefinement::default().w(px(100.)).h(px(40.)))
         };
         div()
             .size_full()
@@ -99,14 +98,10 @@ fn host(
 #[gpui::test]
 fn a_tooltip_shows_after_its_delay_without_a_frame_loop(cx: &mut TestAppContext) {
     let (mut cx, subject, bystander) = host(cx, |_, _| {
-        HoverTooltip::new(
-            "trigger",
-            div().w(px(100.)).h(px(40.)),
-            |_, cx| {
-                TOOLTIPS_BUILT.with(|n| n.set(n.get() + 1));
-                cx.new(|_| Label).into()
-            },
-        )
+        HoverTooltip::new("trigger", div().w(px(100.)).h(px(40.)), |_, cx| {
+            TOOLTIPS_BUILT.with(|n| n.set(n.get() + 1));
+            cx.new(|_| Label).into()
+        })
         .into_any_element()
     });
     let away = point(px(300.), px(250.));
@@ -119,13 +114,20 @@ fn a_tooltip_shows_after_its_delay_without_a_frame_loop(cx: &mut TestAppContext)
     assert_eq!(TOOLTIPS_BUILT.with(Cell::get), 0, "not before the delay");
     cx.executor().advance_clock(Duration::from_millis(300));
     cx.run_until_parked();
-    assert!(TOOLTIPS_BUILT.with(Cell::get) > 0, "shown once the pointer rested");
+    assert!(
+        TOOLTIPS_BUILT.with(Cell::get) > 0,
+        "shown once the pointer rested"
+    );
     assert!(
         subject.get() - subject_before <= 2,
         "the owner repainted {} times while the tooltip waited",
         subject.get() - subject_before
     );
-    assert_eq!(bystander.get(), bystander_before, "a cached bystander replays");
+    assert_eq!(
+        bystander.get(),
+        bystander_before,
+        "a cached bystander replays"
+    );
 }
 
 #[gpui::test]
@@ -166,5 +168,9 @@ fn a_context_menu_opens_and_closes_without_rebuilding_cached_views(cx: &mut Test
     // Click away to dismiss it.
     cx.simulate_click(point(px(300.), px(250.)), Modifiers::none());
     cx.run_until_parked();
-    assert_eq!(bystander.get(), bystander_before, "a cached bystander replays");
+    assert_eq!(
+        bystander.get(),
+        bystander_before,
+        "a cached bystander replays"
+    );
 }

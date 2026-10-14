@@ -3194,15 +3194,20 @@ fn timeline_marker(x: f32, height: f32, color: gpui::Hsla, label: &'static str) 
 /// `wgpu::RenderPipeline` only depends on the shader + bind group layout +
 /// target format, not on any particular lane's instance data.
 pub(crate) struct FlameBarPipeline {
-    /// The device it was made on: after a device loss, a surface on the new
-    /// device needs a new pipeline.
-    device: wgpu::Device,
+    /// The loss flag of the device it was made on, which tells that device
+    /// apart: after a device loss, a surface on the new device needs a new
+    /// pipeline. (Devices from separate wgpu instances can compare equal.)
+    device_lost: Arc<std::sync::atomic::AtomicBool>,
     pipeline: wgpu::RenderPipeline,
     bind_group_layout: wgpu::BindGroupLayout,
 }
 
 impl FlameBarPipeline {
-    pub(crate) fn new(device: &wgpu::Device, format: wgpu::TextureFormat) -> Self {
+    pub(crate) fn new(
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        device_lost: Arc<std::sync::atomic::AtomicBool>,
+    ) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("flame_bar_shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("profiler_flame_shader.wgsl").into()),
@@ -3272,7 +3277,7 @@ impl FlameBarPipeline {
         });
 
         Self {
-            device: device.clone(),
+            device_lost,
             pipeline,
             bind_group_layout,
         }
@@ -3323,9 +3328,15 @@ pub(crate) fn ensure_lane_gpu(
     }
     let device = surface.device().clone();
     let pipeline = match pipeline {
-        Some(pipeline) if pipeline.device == device => pipeline.clone(),
+        Some(pipeline) if Arc::ptr_eq(&pipeline.device_lost, &surface.device_lost_flag()) => {
+            pipeline.clone()
+        }
         _ => pipeline
-            .insert(Rc::new(FlameBarPipeline::new(&device, surface.format())))
+            .insert(Rc::new(FlameBarPipeline::new(
+                &device,
+                surface.format(),
+                surface.device_lost_flag(),
+            )))
             .clone(),
     };
     *slot = Some(FlameLaneGpu::new(&device, surface, &pipeline));
@@ -4210,6 +4221,56 @@ fn render_deep_capture_call_details(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // -- GPU state across a device loss (`ensure_lane_gpu`), on a test
+    // window with a real GPU device; skipped where there is no adapter.
+
+    #[gpui::test]
+    fn lane_gpu_state_moves_onto_the_new_device_after_a_loss(cx: &mut gpui::TestAppContext) {
+        let cx = cx.add_empty_window();
+        if !cx.update(|window, _| window.use_test_gpu_device()) {
+            return;
+        }
+        let (mut slot, mut pipeline) = (None, None);
+        let mut ensure = |cx: &mut gpui::VisualTestContext,
+                          slot: &mut Option<FlameLaneGpu>,
+                          pipeline: &mut Option<Rc<FlameBarPipeline>>| {
+            cx.update(|window, _| ensure_lane_gpu(slot, pipeline, window))
+        };
+
+        assert!(matches!(
+            ensure(cx, &mut slot, &mut pipeline),
+            LaneGpuState::Ready
+        ));
+        let first = pipeline.clone().expect("a pipeline on the first device");
+        assert!(matches!(
+            ensure(cx, &mut slot, &mut pipeline),
+            LaneGpuState::Ready
+        ));
+        assert!(
+            Rc::ptr_eq(&first, pipeline.as_ref().unwrap()),
+            "the pipeline is kept while its device lives"
+        );
+
+        assert!(cx.update(|window, _| window.lose_test_gpu_device()));
+        assert!(matches!(
+            ensure(cx, &mut slot, &mut pipeline),
+            LaneGpuState::Waiting
+        ));
+        assert!(slot.is_none(), "nothing is kept on the lost device");
+
+        assert!(cx.update(|window, cx| window.replace_test_gpu_device(cx)));
+        assert!(matches!(
+            ensure(cx, &mut slot, &mut pipeline),
+            LaneGpuState::Ready
+        ));
+        let gpu = slot.as_ref().expect("lane GPU state on the new device");
+        assert!(!gpu.surface.is_device_lost());
+        assert!(
+            !Rc::ptr_eq(&first, pipeline.as_ref().unwrap()),
+            "the pipeline is made again on the new device"
+        );
+    }
 
     // -- Zoom/pan math (`RangeZoom`, `zoom_factor_for_wheel_delta`,
     // `ImageViewport`) -- pure, display-free logic shared by the flame

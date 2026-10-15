@@ -26,6 +26,7 @@ pub(crate) fn render_color_swatch(
             .active(|this| this.border_color(color.darken(0.5)).bg(color.darken(0.2)))
             .on_click(window.listener_for(&state, move |state, _, window, cx| {
                 state.apply_external_color(color, true, window, cx);
+                state.commit_recent_color(cx);
             }))
         })
 }

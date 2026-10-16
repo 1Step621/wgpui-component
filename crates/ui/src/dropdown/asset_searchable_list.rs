@@ -226,7 +226,9 @@ impl<T: Clone + 'static> AssetSearchableList<T> {
             .filter(|(_, item)| {
                 query.is_empty()
                     || (self.format_title)(item).to_lowercase().contains(&query)
-                    || (self.format_description)(item).to_lowercase().contains(&query)
+                    || (self.format_description)(item)
+                        .to_lowercase()
+                        .contains(&query)
             })
             .map(|(i, _)| i)
             .collect();
@@ -234,154 +236,121 @@ impl<T: Clone + 'static> AssetSearchableList<T> {
     }
 
     fn render_row(&self, ix: usize, item: T, cx: &mut Context<Self>) -> gpui::AnyElement {
-                                let title = (self.format_title)(&item);
-                                let description = (self.format_description)(&item);
-                                let image_source =
-                                    self.image_for.as_ref().and_then(|f| f(&item));
-                                let actions = self
-                                    .item_actions
-                                    .as_ref()
-                                    .map(|f| f(&item))
-                                    .unwrap_or_default();
-                                let item_state = (self.item_state)(&item);
-                                let is_enabled = item_state == AssetListItemState::Enabled;
-                                let theme = cx.theme().clone();
-                                let selected_item = item.clone();
+        let title = (self.format_title)(&item);
+        let description = (self.format_description)(&item);
+        let image_source = self.image_for.as_ref().and_then(|f| f(&item));
+        let actions = self
+            .item_actions
+            .as_ref()
+            .map(|f| f(&item))
+            .unwrap_or_default();
+        let item_state = (self.item_state)(&item);
+        let is_enabled = item_state == AssetListItemState::Enabled;
+        let theme = cx.theme().clone();
+        let selected_item = item.clone();
 
-                                let thumbnail = self.render_thumbnail(image_source, cx);
+        let thumbnail = self.render_thumbnail(image_source, cx);
 
-                                self.row_style(div())
-                                    .id(("asset-list-item", ix))
-                                    .when(is_enabled, |el| {
-                                        el.hover(move |s| s.bg(theme.accent.opacity(0.12)))
+        self.row_style(div())
+            .id(("asset-list-item", ix))
+            .when(is_enabled, |el| {
+                el.hover(move |s| s.bg(theme.accent.opacity(0.12)))
+            })
+            .when(!is_enabled, |el| el.cursor_default().opacity(0.7))
+            // Thumbnail
+            .child(thumbnail)
+            // Text + actions fill remaining space
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .flex_1()
+                    .min_w_0()
+                    .items_center()
+                    .gap_1()
+                    // Clickable text block
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .flex_1()
+                            .min_w_0()
+                            .gap(px(2.0))
+                            .when(is_enabled, |el| {
+                                el.on_mouse_down(
+                                    MouseButton::Left,
+                                    cx.listener(move |_this, _, _, cx| {
+                                        cx.emit(AssetSearchableListEvent::Select(
+                                            selected_item.clone(),
+                                        ));
+                                        cx.emit(DismissEvent);
+                                    }),
+                                )
+                            })
+                            // Title line
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .truncate()
+                                    .text_color(if is_enabled {
+                                        cx.theme().foreground
+                                    } else {
+                                        cx.theme().muted_foreground
                                     })
-                                    .when(!is_enabled, |el| el.cursor_default().opacity(0.7))
-                                    // Thumbnail
-                                    .child(thumbnail)
-                                    // Text + actions fill remaining space
-                                    .child(
-                                        div()
-                                            .flex()
-                                            .flex_row()
-                                            .flex_1()
-                                            .min_w_0()
-                                            .items_center()
-                                            .gap_1()
-                                            // Clickable text block
-                                            .child(
-                                                div()
-                                                    .flex()
-                                                    .flex_col()
-                                                    .flex_1()
-                                                    .min_w_0()
-                                                    .gap(px(2.0))
-                                                    .when(is_enabled, |el| {
-                                                        el.on_mouse_down(
-                                                            MouseButton::Left,
-                                                            cx.listener(move |_this, _, _, cx| {
-                                                                cx.emit(
-                                                                    AssetSearchableListEvent::Select(
-                                                                        selected_item.clone(),
-                                                                    ),
-                                                                );
-                                                                cx.emit(DismissEvent);
-                                                            }),
-                                                        )
-                                                    })
-                                                    // Title line
-                                                    .child(
-                                                        div()
-                                                            .text_sm()
-                                                            .truncate()
-                                                            .text_color(if is_enabled {
-                                                                cx.theme().foreground
-                                                            } else {
-                                                                cx.theme().muted_foreground
-                                                            })
-                                                            .when(!is_enabled, |el| {
-                                                                el.italic().line_through()
-                                                            })
-                                                            .child(title),
-                                                    )
-                                                    // Description line
-                                                    .child(
-                                                        div()
-                                                            .text_xs()
-                                                            .truncate()
-                                                            .text_color(
-                                                                cx.theme().muted_foreground,
-                                                            )
-                                                            .child(description),
-                                                    ),
-                                            )
-                                            // Action buttons
-                                            .when(!actions.is_empty(), |el| {
-                                                el.child(
-                                                    div()
-                                                        .flex()
-                                                        .flex_row()
-                                                        .items_center()
-                                                        .flex_shrink_0()
-                                                        .gap_1()
-                                                        .children(
-                                                            actions.into_iter().map(|action| {
-                                                                let action_item = item.clone();
-                                                                let action_id =
-                                                                    action.id.clone();
-                                                                let button_id = format!(
-                                                                    "asset-list-action-{}-{}",
-                                                                    ix, action.id
-                                                                );
+                                    .when(!is_enabled, |el| el.italic().line_through())
+                                    .child(title),
+                            )
+                            // Description line
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .truncate()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(description),
+                            ),
+                    )
+                    // Action buttons
+                    .when(!actions.is_empty(), |el| {
+                        el.child(
+                            div()
+                                .flex()
+                                .flex_row()
+                                .items_center()
+                                .flex_shrink_0()
+                                .gap_1()
+                                .children(actions.into_iter().map(|action| {
+                                    let action_item = item.clone();
+                                    let action_id = action.id.clone();
+                                    let button_id =
+                                        format!("asset-list-action-{}-{}", ix, action.id);
 
-                                                                let button =
-                                                                    Button::new(button_id)
-                                                                        .xsmall()
-                                                                        .ghost()
-                                                                        .when(
-                                                                            action.destructive,
-                                                                            |b| {
-                                                                                b.text_color(
-                                                                                    cx.theme()
-                                                                                        .danger,
-                                                                                )
-                                                                            },
-                                                                        )
-                                                                        .on_click(cx.listener(
-                                                                            move |_this, _, _, cx| {
-                                                                                cx.emit(
-                                                                                    AssetSearchableListEvent::Action {
-                                                                                        item: action_item.clone(),
-                                                                                        action_id: action_id.clone(),
-                                                                                    },
-                                                                                );
-                                                                            },
-                                                                        ));
+                                    let button = Button::new(button_id)
+                                        .xsmall()
+                                        .ghost()
+                                        .when(action.destructive, |b| {
+                                            b.text_color(cx.theme().danger)
+                                        })
+                                        .on_click(cx.listener(move |_this, _, _, cx| {
+                                            cx.emit(AssetSearchableListEvent::Action {
+                                                item: action_item.clone(),
+                                                action_id: action_id.clone(),
+                                            });
+                                        }));
 
-                                                                match (
-                                                                    action.icon,
-                                                                    action.label.clone(),
-                                                                ) {
-                                                                    (Some(icon), Some(label)) => {
-                                                                        button
-                                                                            .icon(icon)
-                                                                            .label(label)
-                                                                            .into_any_element()
-                                                                    }
-                                                                    (Some(icon), None) => button
-                                                                        .icon(icon)
-                                                                        .into_any_element(),
-                                                                    (None, Some(label)) => button
-                                                                        .label(label)
-                                                                        .into_any_element(),
-                                                                    (None, None) => button
-                                                                        .label("Action")
-                                                                        .into_any_element(),
-                                                                }
-                                                            }),
-                                                        ),
-                                                )
-                                            }),
-                                    )
+                                    match (action.icon, action.label.clone()) {
+                                        (Some(icon), Some(label)) => {
+                                            button.icon(icon).label(label).into_any_element()
+                                        }
+                                        (Some(icon), None) => button.icon(icon).into_any_element(),
+                                        (None, Some(label)) => {
+                                            button.label(label).into_any_element()
+                                        }
+                                        (None, None) => button.label("Action").into_any_element(),
+                                    }
+                                })),
+                        )
+                    }),
+            )
             .into_any_element()
     }
 }
@@ -406,33 +375,47 @@ impl<T: Clone + 'static> Render for AssetSearchableList<T> {
                     .border_color(cx.theme().border)
                     .child(TextInput::new(&self.search_input).w_full().xsmall()),
             )
-            .child(div().flex_1().min_h_0().w_full().overflow_hidden().child(if count == 0 {
+            .child(
                 div()
-                    .px_2()
-                    .py_1()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(self.empty_text.clone())
-                    .into_any_element()
-            } else {
-                // Only the rows in view are built, however many assets there are.
-                gpui::uniform_list(
-                    "asset-searchable-list",
-                    count,
-                    cx.processor(|this, range: std::ops::Range<usize>, _window, cx| {
-                        let items: Vec<T> = range.clone().filter_map(|i| this.filtered.get(i).and_then(|&ix| this.items.get(ix).cloned())).collect();
-                        if let Some(visible) = this.on_visible.clone() {
-                            visible(&items, cx);
-                        }
-                        range
-                            .zip(items)
-                            .map(|(i, item)| this.render_row(i, item, cx))
-                            .collect::<Vec<_>>()
+                    .flex_1()
+                    .min_h_0()
+                    .w_full()
+                    .overflow_hidden()
+                    .child(if count == 0 {
+                        div()
+                            .px_2()
+                            .py_1()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(self.empty_text.clone())
+                            .into_any_element()
+                    } else {
+                        // Only the rows in view are built, however many assets there are.
+                        gpui::uniform_list(
+                            "asset-searchable-list",
+                            count,
+                            cx.processor(|this, range: std::ops::Range<usize>, _window, cx| {
+                                let items: Vec<T> = range
+                                    .clone()
+                                    .filter_map(|i| {
+                                        this.filtered
+                                            .get(i)
+                                            .and_then(|&ix| this.items.get(ix).cloned())
+                                    })
+                                    .collect();
+                                if let Some(visible) = this.on_visible.clone() {
+                                    visible(&items, cx);
+                                }
+                                range
+                                    .zip(items)
+                                    .map(|(i, item)| this.render_row(i, item, cx))
+                                    .collect::<Vec<_>>()
+                            }),
+                        )
+                        .track_scroll(&self.scroll)
+                        .size_full()
+                        .into_any_element()
                     }),
-                )
-                .track_scroll(&self.scroll)
-                .size_full()
-                .into_any_element()
-            }))
+            )
     }
 }

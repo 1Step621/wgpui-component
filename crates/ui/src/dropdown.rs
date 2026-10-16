@@ -1004,31 +1004,34 @@ where
             .when(state.open, |this| {
                 this.child(
                     deferred(
-                        anchored().snap_to_window_with_margin(px(8.)).child(
-                            div()
-                                .occlude()
-                                .map(|this| match self.menu_width {
-                                    Length::Auto => this.w(bounds.size.width + px(2.)),
-                                    Length::Definite(w) => this.w(w),
-                                })
-                                .child(
-                                    v_flex()
-                                        .occlude()
-                                        .mt_1p5()
-                                        .bg(cx.theme().background)
-                                        .border_1()
-                                        .border_color(cx.theme().border)
-                                        .rounded(popup_radius)
-                                        .shadow_md()
-                                        .child(state.list.clone()),
-                                )
-                                .on_mouse_down_out(window.listener_for(
-                                    &self.state,
-                                    |this, _, window, cx| {
-                                        this.escape(&Cancel, window, cx);
-                                    },
-                                )),
-                        ),
+                        anchored()
+                            .position(bounds.bottom_left())
+                            .snap_to_window_with_margin(px(8.))
+                            .child(
+                                div()
+                                    .occlude()
+                                    .map(|this| match self.menu_width {
+                                        Length::Auto => this.w(bounds.size.width + px(2.)),
+                                        Length::Definite(w) => this.w(w),
+                                    })
+                                    .child(
+                                        v_flex()
+                                            .occlude()
+                                            .mt_1p5()
+                                            .bg(cx.theme().background)
+                                            .border_1()
+                                            .border_color(cx.theme().border)
+                                            .rounded(popup_radius)
+                                            .shadow_md()
+                                            .child(state.list.clone()),
+                                    )
+                                    .on_mouse_down_out(window.listener_for(
+                                        &self.state,
+                                        |this, _, window, cx| {
+                                            this.escape(&Cancel, window, cx);
+                                        },
+                                    )),
+                            ),
                     )
                     .with_priority(1),
                 )

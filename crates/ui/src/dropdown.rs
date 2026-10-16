@@ -322,6 +322,8 @@ pub struct Dropdown<D: DropdownDelegate + 'static> {
     menu_width: Length,
     disabled: bool,
     appearance: bool,
+    focus_outline: bool,
+    centered_trigger: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -715,6 +717,8 @@ where
             menu_width: Length::Auto,
             disabled: false,
             appearance: true,
+            focus_outline: true,
+            centered_trigger: false,
         }
     }
 
@@ -766,6 +770,18 @@ where
     /// Set the appearance of the dropdown, if false the dropdown input will no border, background.
     pub fn appearance(mut self, appearance: bool) -> Self {
         self.appearance = appearance;
+        self
+    }
+
+    /// Set whether the input shows a focus outline while focused or open.
+    pub fn focus_outline(mut self, focus_outline: bool) -> Self {
+        self.focus_outline = focus_outline;
+        self
+    }
+
+    /// Center the input vertically in the available dropdown height.
+    pub fn centered_trigger(mut self, centered: bool) -> Self {
+        self.centered_trigger = centered;
         self
     }
 
@@ -882,7 +898,7 @@ where
         let show_clean = self.cleanable && state.selected_index(cx).is_some();
         let bounds = state.bounds;
         let allow_open = !(state.open || self.disabled);
-        let outline_visible = state.open || is_focused && !self.disabled;
+        let outline_visible = self.focus_outline && (state.open || is_focused && !self.disabled);
         let popup_radius = cx.theme().radius.min(px(8.));
 
         div()
@@ -897,6 +913,7 @@ where
             .on_action(window.listener_for(&self.state, DropdownState::escape))
             .size_full()
             .relative()
+            .when(self.centered_trigger, |this| this.flex().items_center())
             .child(
                 div()
                     .id("input")

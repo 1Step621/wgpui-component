@@ -2,9 +2,9 @@ use std::{cell::RefCell, rc::Rc};
 
 use gpui::{
     anchored, deferred, div, prelude::FluentBuilder, px, relative, AnyElement, App, Context,
-    Corner, DismissEvent, Element, ElementId, Entity, Focusable, GlobalElementId,
-    InspectorElementId, InteractiveElement, IntoElement, MouseButton, MouseDownEvent,
-    ParentElement, Pixels, Point, Position, Stateful, Style, Window,
+    Corner, DismissEvent, Element, ElementId, Entity, Focusable, GlobalElementId, Hitbox,
+    HitboxBehavior, InspectorElementId, InteractiveElement, IntoElement, MouseButton,
+    MouseDownEvent, ParentElement, Pixels, Point, Position, Stateful, Style, Window,
 };
 
 use crate::menu::popup_menu::PopupMenu;
@@ -98,7 +98,7 @@ impl Default for ContextMenuState {
 
 impl Element for ContextMenu {
     type RequestLayoutState = ContextMenuState;
-    type PrepaintState = ();
+    type PrepaintState = Hitbox;
 
     fn id(&self) -> Option<ElementId> {
         Some(self.id.clone())
@@ -191,23 +191,25 @@ impl Element for ContextMenu {
         &mut self,
         _: Option<&gpui::GlobalElementId>,
         _: Option<&InspectorElementId>,
-        _: gpui::Bounds<gpui::Pixels>,
+        bounds: gpui::Bounds<gpui::Pixels>,
         request_layout: &mut Self::RequestLayoutState,
         window: &mut Window,
         cx: &mut App,
     ) -> Self::PrepaintState {
+        let hitbox = window.insert_hitbox(bounds, HitboxBehavior::Normal);
         if let Some(menu_element) = &mut request_layout.menu_element {
             menu_element.prepaint(window, cx);
         }
+        hitbox
     }
 
     fn paint(
         &mut self,
         id: Option<&gpui::GlobalElementId>,
         _: Option<&InspectorElementId>,
-        bounds: gpui::Bounds<gpui::Pixels>,
+        _: gpui::Bounds<gpui::Pixels>,
         request_layout: &mut Self::RequestLayoutState,
-        _: &mut Self::PrepaintState,
+        hitbox: &mut Self::PrepaintState,
         window: &mut Window,
         cx: &mut App,
     ) {
@@ -218,6 +220,7 @@ impl Element for ContextMenu {
         let Some(builder) = self.menu.take() else {
             return;
         };
+        let hitbox = hitbox.clone();
 
         self.with_element_state(
             id.unwrap(),
@@ -230,18 +233,21 @@ impl Element for ContextMenu {
                 window.on_mouse_event(move |event: &MouseDownEvent, phase, window, cx| {
                     if phase.bubble()
                         && event.button == MouseButton::Right
-                        && bounds.contains(&event.position)
+                        && hitbox.is_hovered(window)
                     {
+                        let menu = PopupMenu::build(window, cx, |menu, window, cx| {
+                            (builder)(menu, window, cx)
+                        });
+                        if menu.read(cx).is_empty() {
+                            return;
+                        }
+                        cx.stop_propagation();
+
                         {
                             let mut shared_state = shared_state.borrow_mut();
                             shared_state.position = event.position;
                             shared_state.open = true;
                         }
-
-                        let menu = PopupMenu::build(window, cx, |menu, window, cx| {
-                            (builder)(menu, window, cx)
-                        })
-                        .into_element();
 
                         window
                             .subscribe(&menu, cx, {
@@ -259,5 +265,113 @@ impl Element for ContextMenu {
                 });
             },
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gpui::{point, Render, Styled, TestAppContext};
+
+    #[derive(Clone, Copy)]
+    enum Layout {
+        OverlappingMenus,
+        EmptyUpperMenu,
+        ClippedMenu,
+        OccludedMenu,
+    }
+
+    struct MenuTestView {
+        layout: Layout,
+        opened: Rc<RefCell<Vec<&'static str>>>,
+    }
+
+    impl Render for MenuTestView {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            let opened = self.opened.clone();
+            let menu = div()
+                .id("lower")
+                .absolute()
+                .top_0()
+                .left_0()
+                .size(px(100.))
+                .context_menu(move |menu, _, _| {
+                    opened.borrow_mut().push("lower");
+                    menu.menu_handler("Lower", |_, _| {})
+                });
+            let root = div().relative().size(px(120.));
+            match self.layout {
+                Layout::OverlappingMenus | Layout::EmptyUpperMenu => {
+                    let opened = self.opened.clone();
+                    let empty = matches!(self.layout, Layout::EmptyUpperMenu);
+                    root.child(menu).child(
+                        div()
+                            .id("upper")
+                            .absolute()
+                            .top_0()
+                            .left_0()
+                            .size(px(100.))
+                            .context_menu(move |menu, _, _| {
+                                opened.borrow_mut().push("upper");
+                                if empty {
+                                    menu
+                                } else {
+                                    menu.menu_handler("Upper", |_, _| {})
+                                }
+                            }),
+                    )
+                }
+                Layout::ClippedMenu => {
+                    root.child(div().relative().size(px(50.)).overflow_hidden().child(menu))
+                }
+                Layout::OccludedMenu => root
+                    .child(menu)
+                    .child(div().absolute().top_0().left_0().size(px(100.)).occlude()),
+            }
+        }
+    }
+
+    fn right_click(cx: &mut TestAppContext, layout: Layout, x: f32) -> Vec<&'static str> {
+        cx.update(crate::init);
+        let opened = Rc::new(RefCell::new(Vec::new()));
+        let (_, cx) = cx.add_window_view(|_, _| MenuTestView {
+            layout,
+            opened: opened.clone(),
+        });
+        cx.simulate_mouse_down(
+            point(px(x), px(25.)),
+            MouseButton::Right,
+            Default::default(),
+        );
+        let result = opened.borrow().clone();
+        result
+    }
+
+    #[gpui::test]
+    fn only_the_topmost_context_menu_opens(cx: &mut TestAppContext) {
+        assert_eq!(right_click(cx, Layout::OverlappingMenus, 25.), ["upper"]);
+    }
+
+    #[gpui::test]
+    fn an_empty_menu_allows_the_underlying_menu_to_open(cx: &mut TestAppContext) {
+        assert_eq!(
+            right_click(cx, Layout::EmptyUpperMenu, 25.),
+            ["upper", "lower"]
+        );
+    }
+
+    #[gpui::test]
+    fn context_menu_respects_clipping(cx: &mut TestAppContext) {
+        assert!(right_click(cx, Layout::ClippedMenu, 75.).is_empty());
+    }
+
+    #[gpui::test]
+    fn context_menu_opens_inside_the_visible_region(cx: &mut TestAppContext) {
+        assert_eq!(right_click(cx, Layout::ClippedMenu, 25.), ["lower"]);
+    }
+
+    #[gpui::test]
+    fn context_menu_does_not_open_behind_an_occluding_element(cx: &mut TestAppContext) {
+        assert!(right_click(cx, Layout::OccludedMenu, 25.).is_empty());
     }
 }

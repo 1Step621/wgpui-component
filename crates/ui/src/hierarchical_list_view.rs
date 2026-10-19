@@ -374,6 +374,9 @@ impl<Item: HierarchyItem> HierarchicalTreeView<Item> {
         V: 'static + Render,
     {
         let flat_entries = Rc::new(self.flatten_tree());
+        // Include the root drop target and padding, then reserve one row for
+        // every currently visible item. Taller trees scroll inside the cap.
+        let list_height = (36.0 + 28.0 * flat_entries.len() as f32).clamp(40.0, 300.0);
         let items = Arc::new(self.config.items.clone());
         let item_sizes = Rc::new(vec![size(px(0.0), px(28.0)); flat_entries.len()]);
 
@@ -446,8 +449,7 @@ impl<Item: HierarchyItem> HierarchicalTreeView<Item> {
             .child(
                 v_flex()
                     .w_full()
-                    .min_h(px(40.0))
-                    .max_h(px(300.0))
+                    .h(px(list_height))
                     .p_1()
                     .when_some(root_drop_zone, |this, (label, on_drop_arc)| {
                         this.child(

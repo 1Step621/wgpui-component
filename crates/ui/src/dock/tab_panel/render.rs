@@ -313,6 +313,7 @@ impl TabPanel {
         let droppable = state.droppable;
         let channel = state.channel;
         let active_panel = state.active_panel.clone();
+        let tab_preview_decorator = self.tab_preview_decorator.clone();
 
         let mut labels = Vec::with_capacity(visible_count);
         for (_, panel) in &visible_panels {
@@ -343,6 +344,7 @@ impl TabPanel {
                 let panels = visible_panels.clone();
                 let active = active_panel.clone();
                 let view_for_dnd = view_for_build.clone();
+                let tab_preview_decorator = tab_preview_decorator.clone();
                 move |ix, window, cx| {
                     let (orig_ix, ref panel) = panels[ix];
                     let is_active = active.as_ref() == Some(panel) && !collapsed_self;
@@ -478,7 +480,15 @@ impl TabPanel {
                         )
                     });
 
-                    tab
+                    if let Some(decorator) = &tab_preview_decorator {
+                        let decorator = decorator.clone();
+                        let panel = panel.clone();
+                        tab.wrap_element(move |element, window, cx| {
+                            decorator(panel.clone(), element, window, cx)
+                        })
+                    } else {
+                        tab
+                    }
                 }
             })
             .last_empty_space(div().id("tab-bar-empty-space").h_full().min_w_16().when(
@@ -535,11 +545,17 @@ impl TabPanel {
         // Wrap TabBar with context menu overlay
         let view_for_menu = view.clone();
         let panels_for_menu: Vec<_> = self.panels.iter().cloned().collect();
+        let tab_preview_area_hover = self.tab_preview_area_hover.clone();
 
         div()
             .id("tab-bar-container")
             .relative()
             .w_full()
+            .on_hover(move |hovered, window, cx| {
+                if let Some(handler) = &tab_preview_area_hover {
+                    handler(*hovered, window, cx);
+                }
+            })
             .child(tab_bar)
             .child(
                 div()

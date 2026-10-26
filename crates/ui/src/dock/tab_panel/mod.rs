@@ -3,8 +3,8 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui::{
-    div, prelude::FluentBuilder, px, relative, rems, size, AnyWindowHandle, App, AppContext,
-    Bounds, Context, Corner, DismissEvent, Div, DragMoveEvent, Empty, Entity, EventEmitter,
+    div, prelude::FluentBuilder, px, relative, rems, size, AnyElement, AnyWindowHandle, App,
+    AppContext, Bounds, Context, Corner, DismissEvent, Div, DragMoveEvent, Empty, Entity, EventEmitter,
     FocusHandle, Focusable, InteractiveElement as _, IntoElement, ParentElement, Pixels, Point,
     ReadGlobal, Render, ScrollHandle, SharedString, StatefulInteractiveElement, StyleRefinement,
     Styled, UpdateGlobal, WeakEntity, Window, WindowBounds, WindowKind, WindowOptions,
@@ -174,6 +174,10 @@ pub struct TabPanel {
     /// Draw no tab strip at all, only the active panel. Used when something
     /// else lists and switches the tabs (the editor's left sidebar).
     pub(crate) tab_bar_hidden: bool,
+    pub(crate) tab_preview_decorator: Option<
+        Rc<dyn Fn(Arc<dyn PanelView>, AnyElement, &mut Window, &mut App) -> AnyElement>,
+    >,
+    pub(crate) tab_preview_area_hover: Option<Rc<dyn Fn(bool, &mut Window, &mut App)>>,
 }
 
 impl TabPanel {
@@ -205,7 +209,22 @@ impl TabPanel {
             extracted_window: None,
             persistent_tabs: false,
             tab_bar_hidden: false,
+            tab_preview_decorator: None,
+            tab_preview_area_hover: None,
         }
+    }
+
+    /// Install editor-provided tab preview behavior for this tab strip.
+    pub fn set_tab_preview_callbacks(
+        &mut self,
+        decorate_tab: impl Fn(Arc<dyn PanelView>, AnyElement, &mut Window, &mut App) -> AnyElement
+            + 'static,
+        hover_area: impl Fn(bool, &mut Window, &mut App) + 'static,
+        cx: &mut Context<Self>,
+    ) {
+        self.tab_preview_decorator = Some(Rc::new(decorate_tab));
+        self.tab_preview_area_hover = Some(Rc::new(hover_area));
+        cx.notify();
     }
 
     /// Keep the tab strip (and the last tab) permanently; see the field docs.
@@ -314,7 +333,10 @@ impl TabPanel {
         .detach();
 
         cx.emit(PanelEvent::LayoutChanged);
-        cx.emit(PanelEvent::TabChanged { active_index: ix });
+        cx.emit(PanelEvent::TabChanged {
+            active_index: ix,
+            previous_index: Some(last_active_ix),
+        });
         cx.notify();
     }
 
@@ -537,6 +559,7 @@ impl TabPanel {
 
             cx.emit(PanelEvent::TabChanged {
                 active_index: self.active_ix,
+                previous_index: None,
             });
             cx.notify();
             return;

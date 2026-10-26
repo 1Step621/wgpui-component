@@ -1264,7 +1264,7 @@ impl DockArea {
                             );
                         }
                     }
-                    PanelEvent::TabChanged { active_index: _ } => {
+                    PanelEvent::TabChanged { .. } => {
                         // Do nothing for TabChanged
                     }
                 },

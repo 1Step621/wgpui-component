@@ -120,7 +120,7 @@ pub struct HoverTooltip {
     id: ElementId,
     trigger: Option<AnyElement>,
     tooltip_builder: Rc<dyn Fn(&mut Window, &mut App) -> AnyView>,
-    stationary_delay: Duration,
+    stationary_delay: Rc<dyn Fn(&mut App) -> Duration>,
 }
 
 pub struct HoverTooltipElementState {
@@ -157,13 +157,19 @@ impl HoverTooltip {
             id: id.into(),
             trigger: Some(trigger.into_element().into_any_element()),
             tooltip_builder: Rc::new(tooltip_builder),
-            stationary_delay: TOOLTIP_STATIONARY_DELAY,
+            stationary_delay: Rc::new(|_| TOOLTIP_STATIONARY_DELAY),
         }
     }
 
     /// Set how long the pointer must remain stationary before showing the tooltip.
     pub fn with_delay(mut self, delay: Duration) -> Self {
-        self.stationary_delay = delay;
+        self.stationary_delay = Rc::new(move |_| delay);
+        self
+    }
+
+    /// Resolve how long the pointer must stay still when it enters the trigger.
+    pub fn with_delay_from(mut self, delay: impl Fn(&mut App) -> Duration + 'static) -> Self {
+        self.stationary_delay = Rc::new(delay);
         self
     }
 
@@ -320,7 +326,7 @@ impl Element for HoverTooltip {
         // every paint until it ran out re-rendered the owner ~15 times per
         // hover.
         let owner_view = window.current_view();
-        let stationary_delay = self.stationary_delay;
+        let stationary_delay = self.stationary_delay.clone();
 
         let hitbox = prepaint.hitbox.clone();
         let hover_state = request_layout.hover_state.clone();
@@ -336,6 +342,7 @@ impl Element for HoverTooltip {
                 let mouse_moved =
                     !state.hovered || moved_significantly(state.mouse_position, event.position);
                 if mouse_moved {
+                    let stationary_delay = stationary_delay(cx);
                     let was_visible = state.visible;
                     state.hovered = true;
                     state.visible = false;

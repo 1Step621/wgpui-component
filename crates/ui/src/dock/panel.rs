@@ -26,6 +26,7 @@ pub enum PanelEvent {
     /// Tab changed - fired when active tab is switched
     TabChanged {
         active_index: usize,
+        previous_index: Option<usize>,
     },
 }
 

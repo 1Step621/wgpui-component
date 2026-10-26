@@ -408,6 +408,7 @@ pub struct Tab {
     pub(super) selected: bool,
     pub(super) unsaved: bool,
     on_click: Option<Arc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>>,
+    element_wrapper: Option<Arc<dyn Fn(AnyElement, &mut Window, &mut App) -> AnyElement + 'static>>,
 }
 
 impl From<&'static str> for Tab {
@@ -458,6 +459,7 @@ impl Default for Tab {
             variant: TabVariant::default(),
             size: Size::default(),
             on_click: None,
+            element_wrapper: None,
         }
     }
 }
@@ -556,6 +558,15 @@ impl Tab {
         self.on_click = Some(Arc::new(on_click));
         self
     }
+
+    /// Wrap this fully styled tab element during rendering.
+    pub fn wrap_element(
+        mut self,
+        wrapper: impl Fn(AnyElement, &mut Window, &mut App) -> AnyElement + 'static,
+    ) -> Self {
+        self.element_wrapper = Some(Arc::new(wrapper));
+        self
+    }
 }
 
 impl ParentElement for Tab {
@@ -597,7 +608,8 @@ impl Sizable for Tab {
 }
 
 impl RenderOnce for Tab {
-    fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let element_wrapper = self.element_wrapper.clone();
         let mut tab_style = if self.selected {
             self.variant.selected(cx)
         } else {
@@ -652,7 +664,7 @@ impl RenderOnce for Tab {
             base.rounded(tab_style.radius)
         };
 
-        base.when(!self.selected && !self.disabled, |this| {
+        let element = base.when(!self.selected && !self.disabled, |this| {
             this.hover(|this| {
                 let hover_base = this
                     .text_color(hover_style.fg)
@@ -721,6 +733,12 @@ impl RenderOnce for Tab {
             this.when_some(self.on_click.clone(), |this, on_click| {
                 this.on_click(move |event, window, cx| on_click(event, window, cx))
             })
-        })
+        });
+
+        if let Some(wrapper) = element_wrapper {
+            wrapper(element.into_any_element(), window, cx)
+        } else {
+            element.into_any_element()
+        }
     }
 }

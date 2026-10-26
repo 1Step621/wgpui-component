@@ -679,12 +679,16 @@ impl TabPanel {
             .view()
             .cached(StyleRefinement::default().absolute().size_full())
             .into_any_element();
+        let content_id = gpui::ElementId::NamedInteger(
+            "tab-content".into(),
+            active_panel.panel_id(cx).as_u64(),
+        );
 
         v_flex()
             .id("active-panel")
             .group("")
             .flex_1()
-            .child(div().id("tab-content").flex_1().child(panel_content))
+            .child(div().id(content_id).flex_1().child(panel_content))
             .when(state.droppable, |this| {
                 let channel = state.channel;
                 let view = cx.entity().clone();

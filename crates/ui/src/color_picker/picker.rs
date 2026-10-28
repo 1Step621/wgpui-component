@@ -955,14 +955,16 @@ impl RenderOnce for ColorPicker {
                                     )
                                     .on_mouse_up_out(
                                         MouseButton::Left,
-                                        window.listener_for(&self.state, |state, _, window, cx| {
-                                            if state.active_drag.is_some() {
-                                                state.active_drag = None;
-                                                cx.notify();
-                                            } else {
-                                                state.on_escape(&Cancel, window, cx);
-                                            }
-                                        }),
+                                        window.listener_for(
+                                            &self.state,
+                                            |state, event, window, cx| {
+                                                if state.active_drag.is_some() {
+                                                    state.stop_drag_mouse(event, window, cx);
+                                                } else {
+                                                    state.on_escape(&Cancel, window, cx);
+                                                }
+                                            },
+                                        ),
                                     ),
                             ),
                     )

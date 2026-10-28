@@ -19,3 +19,4 @@ pub(in crate::input) use core::{LastLayout, CONTEXT};
 
 #[cfg(test)]
 mod value_sync_tests;
+mod fixed_height_tests;

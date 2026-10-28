@@ -11,7 +11,7 @@ edition = "2021"
 [workspace.dependencies]
 gpui-ce = {
     git = "https://github.com/1Step621/WGPUI",
-    branch = "fix/input-selection-replacement"
+    rev = "187f446db2ae7c3f4754234e7ac496e877a0ca2a"
 }
 ui-macros = { path = "crates/ui-macros" }
 

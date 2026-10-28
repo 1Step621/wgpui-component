@@ -310,6 +310,7 @@ pub struct InputState {
     pub(in crate::input) last_selected_range: Option<Selection>,
     pub(in crate::input) selecting: bool,
     pub(in crate::input) disabled: bool,
+    pub(in crate::input) fixed_height: bool,
     pub(in crate::input) masked: bool,
     pub(in crate::input) clean_on_escape: bool,
     pub(in crate::input) soft_wrap: bool,
@@ -455,6 +456,7 @@ impl InputState {
             input_bounds: Bounds::default(),
             selecting: false,
             disabled: false,
+            fixed_height: false,
             masked: false,
             clean_on_escape: false,
             soft_wrap: true,
@@ -1192,7 +1194,22 @@ impl Render for InputState {
             })
             .when(native_editor_scroll, |this| this.h_auto())
             .when(!native_editor_scroll, |this| this.overflow_x_hidden())
-            .child(TextElement::new(cx.entity().clone()).placeholder(self.placeholder.clone()))
+            .map(|this| {
+                let text =
+                    TextElement::new(cx.entity().clone()).placeholder(self.placeholder.clone());
+                if native_editor_scroll {
+                    this.child(text)
+                } else {
+                    this.child(
+                        div()
+                            .flex()
+                            .flex_1()
+                            .size_full()
+                            .overflow_hidden()
+                            .child(text),
+                    )
+                }
+            })
             .children(self.diagnostic_popover.clone())
             .children(self.context_menu.as_ref().map(|menu| menu.render()))
             .children(self.hover_popover.clone())

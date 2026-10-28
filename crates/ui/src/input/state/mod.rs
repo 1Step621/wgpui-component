@@ -22,3 +22,6 @@ mod selection_tests;
 
 #[cfg(test)]
 mod value_sync_tests;
+
+#[cfg(test)]
+mod fixed_height_tests;

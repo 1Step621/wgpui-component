@@ -355,12 +355,14 @@ impl RenderOnce for TextInput {
 
         let font_size = window.text_style().font_size.to_pixels(window.rem_size());
 
+        let fixed_height = self.height.is_some();
         self.state.update(cx, |state, cx| {
             if state.text_wrapper.set_font(font, font_size, cx) {
                 state.line_cache.borrow_mut().clear();
                 state.render_revision = state.render_revision.wrapping_add(1);
             }
             state.disabled = self.disabled;
+            state.fixed_height = fixed_height;
         });
 
         let state = self.state.read(cx);

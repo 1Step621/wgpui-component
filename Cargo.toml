@@ -14,6 +14,7 @@ gpui-ce = {
     rev = "f9c1ab1b471d21cb6ccd20343cb358b87d11a4b6"
 }
 ui-macros = { path = "crates/ui-macros" }
+wgpui-base = { git = "https://github.com/Far-Beyond-Pulsar/Pulsar-Native", rev = "80b4d992d2946f90948b3b3b88033cbd6edec6c1", features = ["editor-core"] }
 
 anyhow        = "1"
 base64        = "0.22"

@@ -23,6 +23,7 @@ pub struct ColorPickerState {
     pub(crate) value_channel: f32,
     pub(crate) alpha: f32,
     pub(crate) recent_colors: Vec<Hsla>,
+    pending_recent_color: Option<Hsla>,
     pub(crate) _subscriptions: Vec<Subscription>,
 }
 
@@ -60,9 +61,11 @@ impl ColorPickerState {
                         if !this.is_hex_echo(val.as_str()) {
                             this.apply_external_color(color, true, window, cx);
                         }
+                        this.commit_recent_color(cx);
                         cx.notify();
                     }
                 }
+                InputEvent::Blur if this.active_drag.is_none() => this.commit_recent_color(cx),
                 _ => {}
             },
         )];
@@ -75,8 +78,10 @@ impl ColorPickerState {
                 move |this, _state, ev: &InputEvent, window, cx| match ev {
                     InputEvent::Change => this.apply_numeric_input(channel, false, window, cx),
                     InputEvent::PressEnter { .. } => {
-                        this.apply_numeric_input(channel, true, window, cx)
+                        this.apply_numeric_input(channel, true, window, cx);
+                        this.commit_recent_color(cx);
                     }
+                    InputEvent::Blur if this.active_drag.is_none() => this.commit_recent_color(cx),
                     _ => {}
                 },
             ));
@@ -109,6 +114,7 @@ impl ColorPickerState {
             value_channel: 1.0,
             alpha: 1.0,
             recent_colors: Vec::new(),
+            pending_recent_color: None,
             _subscriptions,
         }
     }
@@ -137,6 +143,7 @@ impl ColorPickerState {
 
         self.open = false;
         self.palette_switcher_open = false;
+        self.commit_recent_color(cx);
         cx.notify();
     }
 
@@ -144,6 +151,7 @@ impl ColorPickerState {
         self.open = !self.open;
         if !self.open {
             self.palette_switcher_open = false;
+            self.commit_recent_color(cx);
         }
         cx.notify();
     }
@@ -152,6 +160,7 @@ impl ColorPickerState {
         self.open = !self.open;
         if !self.open {
             self.palette_switcher_open = false;
+            self.commit_recent_color(cx);
         }
         cx.notify();
     }
@@ -200,6 +209,14 @@ impl ColorPickerState {
         self.recent_colors.retain(|c| c.to_hex() != hex);
         self.recent_colors.insert(0, color);
         self.recent_colors.truncate(12);
+    }
+
+    /// Remember the final user-selected color, not intermediate previews or host updates.
+    pub(crate) fn commit_recent_color(&mut self, cx: &mut Context<Self>) {
+        if let Some(color) = self.pending_recent_color.take() {
+            self.push_recent_color(color);
+            cx.notify();
+        }
     }
 
     fn drag_target_for_point(&self, position: Point<Pixels>) -> Option<PickerDragTarget> {
@@ -383,7 +400,9 @@ impl ColorPickerState {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.active_drag = None;
+        if self.active_drag.take().is_some() {
+            self.commit_recent_color(cx);
+        }
         self.triangle_drag_hue_lock = None;
         cx.notify();
     }
@@ -466,7 +485,9 @@ impl ColorPickerState {
             self.value_channel = v;
             self.alpha = rgba.a;
 
-            self.update_value(Some(rgba.into()), emit, window, cx);
+            let color = rgba.into();
+            self.pending_recent_color = Some(color);
+            self.update_value(Some(color), emit, window, cx);
         }
     }
 
@@ -484,7 +505,7 @@ impl ColorPickerState {
         self.update_value(Some(color), emit, window, cx);
     }
 
-    /// Record the final color, sync text inputs, and emit. Never touches
+    /// Update the current color, sync text inputs, and emit. Never touches
     /// hue/saturation/value_channel/alpha — callers own those fields.
     fn update_value(
         &mut self,
@@ -495,8 +516,8 @@ impl ColorPickerState {
     ) {
         self.value = value;
         self.hovered_color = value;
-        if let Some(color) = value {
-            self.push_recent_color(color);
+        if emit {
+            self.pending_recent_color = value;
         }
         self.syncing_inputs = true;
         self.state.update(cx, |view, cx| {
@@ -528,5 +549,162 @@ impl Render for ColorPickerState {
 impl Focusable for ColorPickerState {
     fn focus_handle(&self, _: &App) -> FocusHandle {
         self.focus_handle.clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gpui::{rgb, TestAppContext, WindowHandle};
+
+    fn picker(cx: &mut TestAppContext) -> WindowHandle<ColorPickerState> {
+        cx.update(|cx| {
+            crate::init(cx);
+            cx.open_window(Default::default(), |window, cx| {
+                cx.new(|cx| ColorPickerState::new(window, cx).default_value(rgb(0).into()))
+            })
+            .unwrap()
+        })
+    }
+
+    #[gpui::test]
+    fn programmatic_updates_do_not_fill_recent_colors(cx: &mut TestAppContext) {
+        let picker = picker(cx);
+        for channel in 0..32 {
+            picker
+                .update(cx, |picker, window, cx| {
+                    picker.set_value(rgb(channel * 0x010101).into(), window, cx);
+                })
+                .unwrap();
+        }
+        picker
+            .update(cx, |picker, window, cx| {
+                picker.on_escape(&Cancel, window, cx);
+                assert!(picker.recent_colors.is_empty());
+                assert!(picker.pending_recent_color.is_none());
+            })
+            .unwrap();
+    }
+
+    #[gpui::test]
+    fn slider_drag_records_only_the_final_color(cx: &mut TestAppContext) {
+        let picker = picker(cx);
+        picker
+            .update(cx, |picker, window, cx| {
+                picker.slider_bounds[0] =
+                    Bounds::new(point(px(0.), px(0.)), size(px(100.), px(18.)));
+                picker.start_drag(
+                    &MouseDownEvent {
+                        position: point(px(1.), px(9.)),
+                        button: MouseButton::Left,
+                        ..Default::default()
+                    },
+                    window,
+                    cx,
+                );
+            })
+            .unwrap();
+
+        for x in 2..=90 {
+            picker
+                .update(cx, |picker, window, cx| {
+                    picker.drag_move(point(px(x as f32), px(9.)), window, cx);
+                    // Starting a drag can blur a text field after its first update.
+                    picker.state.update(cx, |_, cx| cx.emit(InputEvent::Blur));
+                    assert!(picker.recent_colors.is_empty());
+                })
+                .unwrap();
+        }
+        picker
+            .update(cx, |picker, window, cx| {
+                assert!(picker.recent_colors.is_empty());
+                let final_color = picker.value.unwrap().to_hex();
+                picker.stop_drag_mouse(&MouseUpEvent::default(), window, cx);
+                picker.stop_drag_mouse(&MouseUpEvent::default(), window, cx);
+                assert_eq!(picker.recent_colors.len(), 1);
+                assert_eq!(picker.recent_colors[0].to_hex(), final_color);
+            })
+            .unwrap();
+    }
+
+    #[gpui::test]
+    fn hex_typing_records_only_the_confirmed_color(cx: &mut TestAppContext) {
+        let picker = picker(cx);
+        for text in ["#123", "#1234", "#123456"] {
+            picker
+                .update(cx, |picker, window, cx| {
+                    picker.state.update(cx, |input, cx| {
+                        input.set_value(text, window, cx);
+                    });
+                })
+                .unwrap();
+        }
+        picker
+            .update(cx, |picker, _, cx| {
+                assert!(picker.recent_colors.is_empty());
+                picker.state.update(cx, |_, cx| {
+                    cx.emit(InputEvent::PressEnter { secondary: false });
+                });
+            })
+            .unwrap();
+        picker
+            .update(cx, |picker, _, _| {
+                assert_eq!(picker.recent_colors.len(), 1);
+                assert_eq!(
+                    picker.recent_colors[0].to_hex(),
+                    Hsla::from(rgb(0x123456)).to_hex()
+                );
+            })
+            .unwrap();
+    }
+
+    #[gpui::test]
+    fn numeric_typing_records_only_the_color_on_blur(cx: &mut TestAppContext) {
+        let picker = picker(cx);
+        for text in ["1", "12", "123"] {
+            picker
+                .update(cx, |picker, window, cx| {
+                    picker.rgba_input_states[0].update(cx, |input, cx| {
+                        input.set_value(text, window, cx);
+                    });
+                })
+                .unwrap();
+        }
+        picker
+            .update(cx, |picker, _, cx| {
+                assert!(picker.recent_colors.is_empty());
+                picker.rgba_input_states[0].update(cx, |_, cx| cx.emit(InputEvent::Blur));
+            })
+            .unwrap();
+        picker
+            .update(cx, |picker, window, cx| {
+                assert_eq!(picker.recent_colors.len(), 1);
+                assert_eq!(
+                    picker.recent_colors[0].to_hex(),
+                    Hsla::from(rgb(0x7b0000)).to_hex()
+                );
+                picker.on_escape(&Cancel, window, cx);
+                assert_eq!(picker.recent_colors.len(), 1);
+            })
+            .unwrap();
+    }
+
+    #[gpui::test]
+    fn closing_records_the_user_color_without_recording_host_sync(cx: &mut TestAppContext) {
+        let picker = picker(cx);
+        picker
+            .update(cx, |picker, window, cx| {
+                picker.open = true;
+                picker.apply_external_color(rgb(0xff0000).into(), true, window, cx);
+                picker.set_value(rgb(0x0000ff).into(), window, cx);
+                picker.on_confirm(&Confirm { secondary: false }, window, cx);
+                assert!(!picker.open);
+                assert_eq!(picker.recent_colors.len(), 1);
+                assert_eq!(
+                    picker.recent_colors[0].to_hex(),
+                    Hsla::from(rgb(0xff0000)).to_hex()
+                );
+            })
+            .unwrap();
     }
 }

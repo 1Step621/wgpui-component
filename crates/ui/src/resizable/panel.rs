@@ -106,7 +106,6 @@ impl RenderOnce for ResizablePanelGroup {
                     panels: vec![],
                     sizes: vec![],
                     resizing_panel_ix: None,
-                    bounds: Bounds::default(),
                 }
             })
         });
@@ -136,17 +135,6 @@ impl RenderOnce for ResizablePanelGroup {
                         panel
                     }),
             )
-            .child({
-                let state_for_bounds = state.clone();
-                canvas(
-                    move |bounds, _, cx| {
-                        state_for_bounds.update(cx, |state, _| state.bounds = bounds)
-                    },
-                    |_, _, _, _| {},
-                )
-                .absolute()
-                .size_full()
-            })
             .child(ResizePanelGroupElement {
                 state: state.clone(),
                 axis: self.axis,
@@ -224,7 +212,7 @@ impl RenderOnce for ResizablePanel {
         div()
             .id(("resizable-panel", self.panel_ix))
             .flex()
-            .flex_grow()
+            .flex_1()
             .size_full()
             .relative()
             .when(self.axis.is_vertical(), |this| {
@@ -236,9 +224,8 @@ impl RenderOnce for ResizablePanel {
             // 1. initial_size is None, to use auto size.
             // 2. initial_size is Some and size is none, to use the initial size of the panel for first time render.
             // 3. initial_size is Some and size is Some, use `size`.
-            .when(self.initial_size.is_none(), |this| this.flex_shrink())
             .when_some(self.initial_size, |this, initial_size| {
-                this.when(!initial_size.is_zero(), |this| this.flex_none())
+                this.when(!initial_size.is_zero(), |this| this.flex_grow_0())
                     .flex_basis(initial_size)
             })
             .map(|this| match panel_state.size {
@@ -268,8 +255,9 @@ impl RenderOnce for ResizablePanel {
                     move |drag_panel, _, _, cx| {
                         cx.stop_propagation();
                         // Set current resizing panel ix
-                        state.update(cx, |state, _| {
+                        state.update(cx, |state, cx| {
                             state.resizing_panel_ix = Some(ix);
+                            cx.notify();
                         });
                         cx.new(|_| drag_panel.deref().clone())
                     },
@@ -338,25 +326,29 @@ impl Element for ResizePanelGroupElement {
         window.on_mouse_event({
             let state = self.state.clone();
             let axis = self.axis;
-            let current_ix = state.read(cx).resizing_panel_ix;
-            move |e: &MouseMoveEvent, phase, window, cx| {
+            move |e: &MouseMoveEvent, phase, _, cx| {
                 if !phase.bubble() {
                     return;
                 }
-                let Some(ix) = current_ix else { return };
+                let Some(ix) = state.read(cx).resizing_panel_ix else {
+                    return;
+                };
 
                 state.update(cx, |state, cx| {
+                    if !e.dragging() {
+                        state.done_resizing(cx);
+                        return;
+                    }
                     let panel = state.panels.get(ix).expect("BUG: invalid panel index");
 
                     match axis {
                         Axis::Horizontal => {
-                            state.resize_panel(ix, e.position.x - panel.bounds.left(), window, cx)
+                            state.resize_panel(ix, e.position.x - panel.bounds.left(), cx)
                         }
                         Axis::Vertical => {
-                            state.resize_panel(ix, e.position.y - panel.bounds.top(), window, cx);
+                            state.resize_panel(ix, e.position.y - panel.bounds.top(), cx);
                         }
                     }
-                    cx.notify();
                 })
             }
         });
@@ -364,14 +356,11 @@ impl Element for ResizePanelGroupElement {
         // When any mouse up, stop dragging
         window.on_mouse_event({
             let state = self.state.clone();
-            let current_ix = state.read(cx).resizing_panel_ix;
             move |_: &MouseUpEvent, phase, _, cx| {
-                if current_ix.is_none() {
+                if !phase.capture() || state.read(cx).resizing_panel_ix.is_none() {
                     return;
                 }
-                if phase.bubble() {
-                    state.update(cx, |state, cx| state.done_resizing(cx));
-                }
+                state.update(cx, |state, cx| state.done_resizing(cx));
             }
         })
     }

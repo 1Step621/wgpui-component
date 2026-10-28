@@ -6,7 +6,7 @@ use crate::{
 };
 use gpui::{
     div, point, px, App, Axis, BoxShadow, Corners, DefiniteLength, Div, Edges, Element,
-    FocusHandle, Hsla, ParentElement, Pixels, Refineable, StyleRefinement, Styled, Window,
+    FocusHandle, Hsla, Length, ParentElement, Pixels, Refineable, StyleRefinement, Styled, Window,
 };
 use serde::{Deserialize, Serialize};
 
@@ -20,6 +20,13 @@ pub fn h_flex() -> Div {
 #[inline]
 pub fn v_flex() -> Div {
     div().v_flex()
+}
+
+pub(crate) fn is_full_width(style: &StyleRefinement) -> bool {
+    matches!(
+        style.size.width,
+        Some(Length::Definite(DefiniteLength::Fraction(1.0)))
+    )
 }
 
 /// Create a [`BoxShadow`] like CSS.
@@ -249,6 +256,18 @@ pub enum Size {
 }
 
 impl Size {
+    /// Returns the shared height for buttons and form controls.
+    #[inline]
+    pub fn control_height(&self) -> Pixels {
+        match self {
+            Self::XSmall => px(20.),
+            Self::Small => px(26.),
+            Self::Medium => px(32.),
+            Self::Large => px(44.),
+            Self::Size(height) => *height,
+        }
+    }
+
     fn as_f32(&self) -> f32 {
         match self {
             Size::Size(val) => val.as_f32(),
@@ -479,14 +498,7 @@ impl<T: Styled> StyleSized<T> for T {
 
     #[inline]
     fn input_h(self, size: Size) -> Self {
-        match size {
-            Size::Large => self.h_11(),
-            Size::Medium => self.h_8(),
-            Size::Small => self.h(px(26.)),
-            Size::XSmall => self.h(px(20.)),
-            _ => self.h(px(26.)),
-        }
-        .input_text_size(size)
+        self.h(size.control_height()).input_text_size(size)
     }
 
     #[inline]

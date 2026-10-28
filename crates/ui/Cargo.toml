@@ -45,8 +45,8 @@ flamegraph = ["gpui-ce/flamegraph", "dep:wgpu", "dep:bytemuck"]
 
 [dependencies]
 gpui-ce.workspace = true
-wgpui-base = { path = "../../../wgpui-base", optional = true, features = ["editor-core"] }
-ui-macros = { path = "../ui-macros" }
+wgpui-base = { workspace = true, optional = true }
+ui-macros.workspace = true
 
 anyhow = "1"
 base64 = "0.22"

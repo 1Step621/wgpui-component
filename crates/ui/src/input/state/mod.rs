@@ -19,3 +19,6 @@ pub(in crate::input) use core::{LastLayout, CONTEXT};
 
 #[cfg(test)]
 mod selection_tests;
+
+#[cfg(test)]
+mod value_sync_tests;

@@ -6,7 +6,7 @@ use gpui::{
 };
 
 // Scans assets/icons/*.svg at compile time → generates `enum IconName` + `IconName::path()`
-ui_macros::generate_icon_enum!("../../assets/icons");
+ui_macros::generate_icon_enum!("assets/icons");
 
 impl IconName {
     #[allow(non_upper_case_globals)]

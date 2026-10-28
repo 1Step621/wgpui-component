@@ -12,7 +12,7 @@
 //! ## Theme Storage
 //!
 //! Themes are stored in:
-//! - Embedded: `../../themes/*.json`
+//! - Embedded: `themes/*.json`
 //! - Runtime: `{appdata}/themes/*.json`
 //! - State: `{appdata}/state.json`
 //!
@@ -45,7 +45,7 @@ use gpui::{
 use rust_embed::RustEmbed;
 
 #[derive(RustEmbed)]
-#[folder = "../../themes"]
+#[folder = "themes"]
 struct EmbeddedThemes;
 
 fn get_state_file_path() -> PathBuf {

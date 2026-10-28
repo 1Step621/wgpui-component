@@ -16,3 +16,6 @@ pub use core::{
     ToggleCodeActions, Undo,
 };
 pub(in crate::input) use core::{LastLayout, CONTEXT};
+
+#[cfg(test)]
+mod selection_tests;

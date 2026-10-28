@@ -2,7 +2,6 @@ use std::ops::Range;
 
 use gpui::{
     px, Along, App, AppContext, Axis, Bounds, Context, ElementId, Entity, EventEmitter, Pixels,
-    Window,
 };
 
 use crate::PixelsExt;
@@ -37,7 +36,6 @@ pub struct ResizableState {
     panels: Vec<ResizablePanelState>,
     sizes: Vec<Pixels>,
     pub(crate) resizing_panel_ix: Option<usize>,
-    bounds: Bounds<Pixels>,
 }
 
 impl ResizableState {
@@ -47,7 +45,6 @@ impl ResizableState {
             panels: vec![],
             sizes: vec![],
             resizing_panel_ix: None,
-            bounds: Bounds::default(),
         })
     }
 
@@ -90,20 +87,15 @@ impl ResizableState {
         cx: &mut Context<Self>,
     ) {
         let size = bounds.size.along(self.axis);
-        // This runs from every frame's layout. Notifying unconditionally marks
-        // the state's ancestor views dirty each frame (and schedules a follow-up
-        // frame, since it happens during draw), so only notify on a real change.
-        let unchanged = self.sizes[panel_ix] == size
-            && self.panels[panel_ix].size == Some(size)
-            && self.panels[panel_ix].bounds == bounds
-            && self.panels[panel_ix].size_range == size_range;
-        if unchanged {
+        let panel = &mut self.panels[panel_ix];
+        // Stable layout measurements must not schedule another redraw.
+        if self.sizes[panel_ix] == size && panel.bounds == bounds && panel.size_range == size_range
+        {
             return;
         }
         self.sizes[panel_ix] = size;
-        self.panels[panel_ix].size = Some(size);
-        self.panels[panel_ix].bounds = bounds;
-        self.panels[panel_ix].size_range = size_range;
+        panel.bounds = bounds;
+        panel.size_range = size_range;
         cx.notify();
     }
 
@@ -158,75 +150,63 @@ impl ResizableState {
         panel.size_range.clone()
     }
 
-    fn sync_real_panel_sizes(&mut self, _: &App) {
+    fn sync_real_panel_sizes(&mut self) {
         for (i, panel) in self.panels.iter().enumerate() {
-            self.sizes[i] = panel.bounds.size.along(self.axis).floor();
+            self.sizes[i] = panel.bounds.size.along(self.axis);
         }
     }
 
-    /// The `ix`` is the index of the panel to resize,
+    /// The `ix` is the index of the panel to resize,
     /// and the `size` is the new size for the panel.
-    fn resize_panel(&mut self, ix: usize, size: Pixels, _: &mut Window, cx: &mut Context<Self>) {
+    fn resize_panel(&mut self, ix: usize, size: Pixels, cx: &mut Context<Self>) {
+        self.sync_real_panel_sizes();
         let old_sizes = self.sizes.clone();
 
-        let mut ix = ix;
-        // Only resize the left panels.
-        if ix >= old_sizes.len() - 1 {
+        if ix + 1 >= old_sizes.len() {
             return;
         }
-        let size = size.floor();
-        let container_size = self.bounds.size.along(self.axis);
-        self.sync_real_panel_sizes(cx);
-
-        let move_changed = size - old_sizes[ix];
-        if move_changed == px(0.) {
+        let delta = size.floor() - old_sizes[ix];
+        if delta == px(0.) {
             return;
         }
 
-        let size_range = self.panel_size_range(ix);
-        let new_size = size.clamp(size_range.start, size_range.end);
-        let is_expand = move_changed > px(0.);
-
-        let main_ix = ix;
+        let expanding = delta > px(0.);
+        let available = |i: usize, grow: bool| {
+            let range = self.panel_size_range(i);
+            if grow {
+                (range.end - old_sizes[i]).max(px(0.))
+            } else {
+                (old_sizes[i] - range.start).max(px(0.))
+            }
+        };
+        let left_available = px((0..=ix).map(|i| available(i, expanding).as_f32()).sum());
+        let right_available = px((ix + 1..old_sizes.len())
+            .map(|i| available(i, !expanding).as_f32())
+            .sum());
+        // Transfer only the space both sides can accommodate. Keep the total
+        // size unchanged, even when a panel reaches its minimum or maximum.
+        let change = px(delta.as_f32().abs())
+            .min(left_available)
+            .min(right_available);
+        if change == px(0.) {
+            return;
+        }
         let mut new_sizes = old_sizes.clone();
-
-        if is_expand {
-            let mut changed = new_size - old_sizes[ix];
-            new_sizes[ix] = new_size;
-
-            while changed > px(0.) && ix < old_sizes.len() - 1 {
-                ix += 1;
-                let size_range = self.panel_size_range(ix);
-                let available_size = (new_sizes[ix] - size_range.start).max(px(0.));
-                let to_reduce = changed.min(available_size);
-                new_sizes[ix] -= to_reduce;
-                changed -= to_reduce;
-            }
-        } else {
-            let mut changed = new_size - size;
-            new_sizes[ix + 1] += old_sizes[ix] - new_size;
-            new_sizes[ix] = new_size;
-
-            while changed > px(0.) && ix > 0 {
-                ix -= 1;
-                let size_range = self.panel_size_range(ix);
-                let available_size = (new_sizes[ix] - size_range.start).max(px(0.));
-                let to_reduce = changed.min(available_size);
-                changed -= to_reduce;
-                new_sizes[ix] -= to_reduce;
-            }
+        let mut remaining = change;
+        for i in (0..=ix).rev() {
+            let amount = remaining.min(available(i, expanding));
+            new_sizes[i] += if expanding { amount } else { -amount };
+            remaining -= amount;
+        }
+        remaining = change;
+        for i in ix + 1..old_sizes.len() {
+            let amount = remaining.min(available(i, !expanding));
+            new_sizes[i] += if expanding { -amount } else { amount };
+            remaining -= amount;
         }
 
-        // If total size exceeds container size, adjust the main panel
-        let total_size: Pixels = new_sizes.iter().map(|s| s.as_f32()).sum::<f32>().into();
-        if total_size > container_size {
-            let overflow = total_size - container_size;
-            new_sizes[main_ix] = (new_sizes[main_ix] - overflow).max(size_range.start);
-        }
-
-        for (i, _) in old_sizes.iter().enumerate() {
-            let size = new_sizes[i];
-            self.panels[i].size = Some(size);
+        for (panel, size) in self.panels.iter_mut().zip(&new_sizes) {
+            panel.size = Some(*size);
         }
 
         self.sizes = new_sizes;
@@ -238,6 +218,7 @@ impl EventEmitter<ResizablePanelEvent> for ResizableState {}
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct ResizablePanelState {
+    /// Preferred size; layout measurements are stored in `bounds`.
     pub size: Option<Pixels>,
     pub size_range: Range<Pixels>,
     bounds: Bounds<Pixels>,

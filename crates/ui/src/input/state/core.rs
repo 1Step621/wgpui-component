@@ -356,6 +356,7 @@ pub struct InputState {
 
     /// A flag to indicate if we should ignore the next completion event.
     pub(in crate::input) silent_replace_text: bool,
+    pub(in crate::input) emit_change_event: bool,
 
     /// To remember the horizontal column (x-coordinate) of the cursor position for keep column for move up/down.
     ///
@@ -487,6 +488,7 @@ impl InputState {
             hover_popover: None,
             hover_definition: HoverDefinition::default(),
             silent_replace_text: false,
+            emit_change_event: true,
             _subscriptions,
             _context_menu_task: Task::ready(Ok(())),
             line_highlights: Vec::new(),
@@ -744,6 +746,7 @@ impl InputState {
 
         self.history.ignore = true;
         let was_disabled = self.disabled;
+        self.disabled = false;
         self.replace_text(value, window, cx);
         self.disabled = was_disabled;
         self.history.ignore = false;
@@ -758,6 +761,22 @@ impl InputState {
         self.minimap_drag.cache.borrow_mut().invalidate_all();
 
         cx.notify();
+    }
+
+    /// Update the displayed value without emitting [`InputEvent::Change`].
+    ///
+    /// Use this when synchronizing the input from a model. User edits still
+    /// emit change events, so model updates cannot feed back into themselves.
+    pub fn set_value_silent(
+        &mut self,
+        value: impl Into<SharedString>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let emit_change_event = self.emit_change_event;
+        self.emit_change_event = false;
+        self.set_value(value, window, cx);
+        self.emit_change_event = emit_change_event;
     }
 
     /// Snapshot line-cache statistics for performance monitoring.

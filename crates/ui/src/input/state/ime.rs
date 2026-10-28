@@ -96,8 +96,14 @@ impl EntityInputHandler for InputState {
             .map(|range| self.range_to_utf16(&range.into()))
     }
 
-    fn unmark_text(&mut self, _window: &mut Window, _cx: &mut Context<Self>) {
-        self.ime_marked_range = None;
+    fn unmark_text(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        if self.ime_marked_range.is_some() {
+            self.ime_marked_range = None;
+            if self.emit_change_event {
+                cx.emit(InputEvent::Change);
+            }
+            cx.notify();
+        }
     }
 
     /// Replace text in range.
@@ -191,7 +197,9 @@ impl EntityInputHandler for InputState {
         if !self.silent_replace_text {
             self.handle_completion_trigger(&range, &new_text, window, cx);
         }
-        cx.emit(InputEvent::Change);
+        if self.emit_change_event {
+            cx.emit(InputEvent::Change);
+        }
         cx.notify();
     }
 
@@ -252,7 +260,9 @@ impl EntityInputHandler for InputState {
                 .into();
         }
         self.mode.update_auto_grow(&self.text_wrapper);
-        cx.emit(InputEvent::Change);
+        if self.emit_change_event {
+            cx.emit(InputEvent::Change);
+        }
         cx.notify();
     }
 

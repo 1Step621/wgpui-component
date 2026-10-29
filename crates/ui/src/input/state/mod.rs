@@ -18,4 +18,9 @@ pub use core::{
 pub(in crate::input) use core::{LastLayout, CONTEXT};
 
 #[cfg(test)]
+mod value_sync_tests;
+#[cfg(test)]
+mod fixed_height_tests;
+
+#[cfg(test)]
 mod selection_tests;

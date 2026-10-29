@@ -310,6 +310,7 @@ pub struct InputState {
     pub(in crate::input) last_selected_range: Option<Selection>,
     pub(in crate::input) selecting: bool,
     pub(in crate::input) disabled: bool,
+    pub(in crate::input) fixed_height: bool,
     pub(in crate::input) masked: bool,
     pub(in crate::input) clean_on_escape: bool,
     pub(in crate::input) soft_wrap: bool,
@@ -355,6 +356,7 @@ pub struct InputState {
 
     /// A flag to indicate if we should ignore the next completion event.
     pub(in crate::input) silent_replace_text: bool,
+    pub(in crate::input) emit_change_event: bool,
 
     /// To remember the horizontal column (x-coordinate) of the cursor position for keep column for move up/down.
     ///
@@ -454,6 +456,7 @@ impl InputState {
             input_bounds: Bounds::default(),
             selecting: false,
             disabled: false,
+            fixed_height: false,
             masked: false,
             clean_on_escape: false,
             soft_wrap: true,
@@ -485,6 +488,7 @@ impl InputState {
             hover_popover: None,
             hover_definition: HoverDefinition::default(),
             silent_replace_text: false,
+            emit_change_event: true,
             _subscriptions,
             _context_menu_task: Task::ready(Ok(())),
             line_highlights: Vec::new(),
@@ -742,6 +746,7 @@ impl InputState {
 
         self.history.ignore = true;
         let was_disabled = self.disabled;
+        self.disabled = false;
         self.replace_text(value, window, cx);
         self.disabled = was_disabled;
         self.history.ignore = false;
@@ -756,6 +761,22 @@ impl InputState {
         self.minimap_drag.cache.borrow_mut().invalidate_all();
 
         cx.notify();
+    }
+
+    /// Update the displayed value without emitting [`InputEvent::Change`].
+    ///
+    /// Use this when synchronizing the input from a model. User edits still
+    /// emit change events, so model updates cannot feed back into themselves.
+    pub fn set_value_silent(
+        &mut self,
+        value: impl Into<SharedString>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let emit_change_event = self.emit_change_event;
+        self.emit_change_event = false;
+        self.set_value(value, window, cx);
+        self.emit_change_event = emit_change_event;
     }
 
     /// Snapshot line-cache statistics for performance monitoring.
@@ -1173,7 +1194,22 @@ impl Render for InputState {
             })
             .when(native_editor_scroll, |this| this.h_auto())
             .when(!native_editor_scroll, |this| this.overflow_x_hidden())
-            .child(TextElement::new(cx.entity().clone()).placeholder(self.placeholder.clone()))
+            .map(|this| {
+                let text =
+                    TextElement::new(cx.entity().clone()).placeholder(self.placeholder.clone());
+                if native_editor_scroll {
+                    this.child(text)
+                } else {
+                    this.child(
+                        div()
+                            .flex()
+                            .flex_1()
+                            .size_full()
+                            .overflow_hidden()
+                            .child(text),
+                    )
+                }
+            })
             .children(self.diagnostic_popover.clone())
             .children(self.context_menu.as_ref().map(|menu| menu.render()))
             .children(self.hover_popover.clone())

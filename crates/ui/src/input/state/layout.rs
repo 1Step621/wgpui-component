@@ -152,6 +152,10 @@ impl InputState {
             self.update_scroll_offset(Some(self.scroll_handle.offset() + delta), cx);
         }
         self.diagnostic_popover = None;
+
+        if self.mode.is_multi_line() {
+            cx.stop_propagation();
+        }
     }
 
     pub(crate) fn update_scroll_offset(

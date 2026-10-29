@@ -45,6 +45,10 @@ pub trait PopupMenuExt: Styled + Selectable + InteractiveElement + IntoElement +
         f: impl Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + 'static,
     ) -> Popover<PopupMenu> {
         let style = self.style().clone();
+        if crate::is_full_width(&style) {
+            self.style().size.width = None;
+            self.style().flex_grow = Some(1.0);
+        }
         let id = self.interactivity().element_id.clone();
 
         Popover::new(SharedString::from(format!("popup-menu:{:?}", id)))
